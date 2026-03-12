@@ -1,0 +1,113 @@
+"""DICOM reading, windowing, and conversion utilities."""
+
+from __future__ import annotations
+
+import io
+
+import numpy as np
+import pydicom
+from pydicom.pixel_data_handlers.util import apply_voi_lut
+from PIL import Image
+
+# Modality-specific default windows: (center, width)
+_DEFAULT_WINDOWS = {
+    "CT": (40.0, 400.0),      # soft-tissue
+    "CR": (2048.0, 4096.0),   # 12-bit X-ray
+    "DX": (2048.0, 4096.0),   # digital X-ray
+}
+
+
+def is_dicom_candidate(p):
+    """Check if a path is likely a DICOM file."""
+    if p.is_dir():
+        return False
+    return p.suffix.lower() in {".dcm", ".dicom"} or p.suffix == ""
+
+
+def read_dicom(path):
+    """Read a DICOM file, return Dataset or None on failure."""
+    try:
+        return pydicom.dcmread(str(path), force=True)
+    except Exception:
+        return None
+
+
+def _dynamic_window(pixels):
+    """Compute a window from pixel statistics (for MR / unknown)."""
+    mean, std = float(np.mean(pixels)), float(np.std(pixels))
+    return mean, max(std * 4.0, 1.0)
+
+
+def apply_windowing(ds):
+    """Apply VOI LUT or manual windowing, return float64 array in [0, 1]."""
+    pixels = ds.pixel_array.astype(np.float64)
+
+    # Try pydicom's VOI LUT first (handles LUT tables + linear windows)
+    try:
+        windowed = apply_voi_lut(pixels, ds).astype(np.float64)
+        lo, hi = windowed.min(), windowed.max()
+        if hi - lo > 0:
+            return (windowed - lo) / (hi - lo)
+    except Exception:
+        pass
+
+    # Manual fallback using DICOM metadata or modality defaults
+    modality = str(getattr(ds, "Modality", ""))
+    wc = getattr(ds, "WindowCenter", None)
+    ww = getattr(ds, "WindowWidth", None)
+
+    if wc is not None and ww is not None:
+        # Handle MultiValue — take first element
+        if hasattr(wc, "__iter__") and not isinstance(wc, str):
+            wc, ww = float(wc[0]), float(ww[0])
+        else:
+            wc, ww = float(wc), float(ww)
+    elif modality in _DEFAULT_WINDOWS:
+        wc, ww = _DEFAULT_WINDOWS[modality]
+    else:
+        wc, ww = _dynamic_window(pixels)
+
+    lower = wc - ww / 2.0
+    upper = wc + ww / 2.0
+    clipped = np.clip(pixels, lower, upper)
+    return (clipped - lower) / max(upper - lower, 1e-6)
+
+
+def dicom_to_pil(ds):
+    """Convert DICOM Dataset to an 8-bit grayscale PIL Image."""
+    arr = apply_windowing(ds)
+    # Invert MONOCHROME1 (white = low values)
+    if getattr(ds, "PhotometricInterpretation", "") == "MONOCHROME1":
+        arr = 1.0 - arr
+    return Image.fromarray((arr * 255).astype(np.uint8), mode="L")
+
+
+def dicom_to_png_bytes(ds):
+    """Convert DICOM to PNG bytes for the endpoint."""
+    buf = io.BytesIO()
+    dicom_to_pil(ds).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def extract_metadata(ds):
+    """Pull a curated set of DICOM tags for display."""
+    tags = [
+        ("Patient", "PatientName"), ("Patient ID", "PatientID"),
+        ("Study Date", "StudyDate"), ("Study", "StudyDescription"),
+        ("Series", "SeriesDescription"), ("Modality", "Modality"),
+        ("Body Part", "BodyPartExamined"), ("Institution", "InstitutionName"),
+        ("Size", None), ("Bits", "BitsAllocated"),
+        ("Photometric", "PhotometricInterpretation"),
+        ("Window Center", "WindowCenter"), ("Window Width", "WindowWidth"),
+    ]
+    rows = []
+    for label, attr in tags:
+        if label == "Size":
+            r = getattr(ds, "Rows", "?")
+            c = getattr(ds, "Columns", "?")
+            rows.append((label, f"{r} x {c}"))
+        else:
+            val = getattr(ds, attr, None)
+            if val is not None:
+                rows.append((label, str(val)))
+    return rows
