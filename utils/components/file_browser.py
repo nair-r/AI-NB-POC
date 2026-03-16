@@ -1,8 +1,8 @@
-"""Sidebar file browser with click-to-open navigation."""
+"""Dual file browsers: one for DICOM images, one for text reports."""
 
 from __future__ import annotations
 
-import html
+import html as html_mod
 from pathlib import Path
 
 import ipywidgets as widgets
@@ -34,56 +34,53 @@ def _error_card(msg):
     )
 
 
-def build_file_browser(state, viewer):
-    """Build sidebar file browser with click-to-open behavior.
+def _build_browser(title, default_path, file_filter, file_icon, on_file_click,
+                   rows=15):
+    """Build a generic file browser panel.
 
     Args:
-        state: AppState instance.
-        viewer: dict returned by build_viewer (contains widgets to update).
+        title: Section heading (may contain HTML entities).
+        default_path: Initial directory to browse.
+        file_filter: callable(Path) -> bool, which non-directory files to show.
+        file_icon: Emoji string used for matching files.
+        on_file_click: callable(Path) -> str|None.  Called when a matching
+            file is selected.  Return an error message string to display,
+            or *None* on success.
+        rows: Number of visible rows in the Select widget.
+
+    Returns:
+        VBox widget for the browser panel.
     """
 
+    _current_dir = [None]
+    _refreshing = [False]
+
     root_text = widgets.Text(
-        value="/data",
+        value=default_path,
         placeholder="/path/to/data",
         layout=widgets.Layout(width="100%"),
     )
-    browse_btn = widgets.Button(
+    go_btn = widgets.Button(
         description="Go", icon="folder-open", button_style="info",
-        layout=widgets.Layout(width="60px", height="32px"),
+        layout=widgets.Layout(width="55px", height="30px"),
     )
-    nav_up_btn = widgets.Button(
+    up_btn = widgets.Button(
         description="", icon="arrow-up",
-        layout=widgets.Layout(width="36px", height="32px"),
+        layout=widgets.Layout(width="34px", height="30px"),
     )
     breadcrumb = widgets.HTML(
         value=(
-            "<div style='font-size:11px;color:#6c757d;padding:4px 0;'>"
+            "<div style='font-size:10px;color:#6c757d;padding:2px 0;'>"
             "No directory selected</div>"
         ),
     )
     file_list = widgets.Select(
-        options=[], rows=20,
+        options=[], rows=rows,
         layout=widgets.Layout(width="100%"),
     )
-    browser_status = widgets.HTML(value="")
+    status = widgets.HTML(value="")
 
-    # Viewer widgets for cross-component updates
-    image_widget = viewer["image_widget"]
-    image_placeholder = viewer["image_placeholder"]
-    image_label = viewer["image_label"]
-    text_viewer = viewer["text_viewer"]
-    metadata_html = viewer["metadata_html"]
-    metadata_table = viewer["metadata_table"]
-    info_panel = viewer["info_panel"]
-
-    # Report widgets
-    report_toggle = viewer["report_toggle"]
-    report_hint = viewer["report_hint"]
-    report_display = viewer["report_display"]
-    clear_report_btn = viewer["clear_report_btn"]
-
-    # Guard flag to prevent re-entrant selection events during list refresh
-    _refreshing = [False]
+    # ---- internal helpers ------------------------------------------------
 
     def _list_directory(directory):
         _refreshing[0] = True
@@ -93,12 +90,11 @@ def build_file_browser(state, viewer):
                 key=lambda p: (not p.is_dir(), p.name.lower()),
             )
         except PermissionError:
-            browser_status.value = _error_card("Permission denied.")
+            status.value = _error_card("Permission denied.")
             _refreshing[0] = False
             return
 
         options = []
-        # Parent directory entry
         if directory.parent != directory:
             options.append("\u2B06 ..")
         for entry in entries:
@@ -106,73 +102,138 @@ def build_file_browser(state, viewer):
                 continue
             if entry.is_dir():
                 options.append(f"\U0001F4C1 {entry.name}")
-            elif is_dicom_candidate(entry):
-                options.append(f"\U0001F52C {entry.name}")
-            elif _is_text_file(entry):
-                options.append(f"\U0001F4C4 {entry.name}")
+            elif file_filter(entry):
+                options.append(f"{file_icon} {entry.name}")
 
-        file_list.options = options if options else ["(empty directory)"]
+        file_list.options = options if options else ["(empty)"]
         file_list.value = None
         _refreshing[0] = False
 
-        # Breadcrumb
         dir_str = str(directory)
-        if len(dir_str) > 35:
-            dir_str = "\u2026" + dir_str[-32:]
+        if len(dir_str) > 30:
+            dir_str = "\u2026" + dir_str[-27:]
         breadcrumb.value = (
-            f"<div style='font-size:11px;color:#6c757d;padding:4px 0;"
-            f"border-bottom:1px solid #e9ecef;margin-bottom:4px;'>"
-            f"&#128194; <b>{dir_str}</b></div>"
+            f"<div style='font-size:10px;color:#6c757d;padding:2px 0;"
+            f"border-bottom:1px solid #e9ecef;margin-bottom:2px;'>"
+            f"&#128194; {dir_str}</div>"
         )
 
-    def _on_browse(_btn=None):
+    def _on_go(_btn=None):
         p = Path(root_text.value.strip())
         if not p.exists() or not p.is_dir():
-            browser_status.value = _error_card(f"Not found: {p}")
+            status.value = _error_card(f"Not found: {p}")
             return
-        browser_status.value = ""
-        state.current_dir = p
+        status.value = ""
+        _current_dir[0] = p
         _list_directory(p)
 
-    def _on_nav_up(_btn=None):
-        if state.current_dir is None:
+    def _on_up(_btn=None):
+        if _current_dir[0] is None:
             return
-        parent = state.current_dir.parent
-        if parent != state.current_dir:
-            state.current_dir = parent
+        parent = _current_dir[0].parent
+        if parent != _current_dir[0]:
+            _current_dir[0] = parent
             root_text.value = str(parent)
             _list_directory(parent)
 
-    def _display_dicom(file_path):
+    def _on_select(change):
+        if _refreshing[0]:
+            return
+        val = change["new"]
+        if not val or val == "(empty)":
+            return
+
+        name = val.split(" ", 1)[1] if " " in val else val
+
+        if name == "..":
+            _on_up()
+            return
+
+        if _current_dir[0] is None:
+            return
+        target = _current_dir[0] / name
+
+        if target.is_dir():
+            _current_dir[0] = target
+            root_text.value = str(target)
+            _list_directory(target)
+        elif file_filter(target):
+            error = on_file_click(target)
+            if error:
+                status.value = _error_card(error)
+            else:
+                status.value = ""
+
+    # ---- wire events -----------------------------------------------------
+
+    go_btn.on_click(_on_go)
+    up_btn.on_click(_on_up)
+    file_list.observe(_on_select, names="value")
+
+    # Auto-browse on startup
+    _on_go()
+
+    panel = widgets.VBox(
+        [
+            widgets.HTML(
+                f"<div style='font-size:12px;font-weight:700;color:#495057;"
+                f"padding:0 0 4px;'>{title}</div>"
+            ),
+            widgets.HBox(
+                [root_text, up_btn, go_btn],
+                layout=widgets.Layout(width="100%"),
+            ),
+            breadcrumb,
+            file_list,
+            status,
+        ],
+        layout=widgets.Layout(
+            width="250px", min_width="250px",
+            padding="8px",
+        ),
+    )
+    panel.add_class("medgemma-sidebar")
+
+    return panel
+
+
+# =========================================================================
+# Public builders
+# =========================================================================
+
+def build_image_browser(state, viewer):
+    """Build DICOM image file browser (left sidebar)."""
+
+    image_widget = viewer["image_widget"]
+    image_placeholder = viewer["image_placeholder"]
+    image_label = viewer["image_label"]
+    metadata_html = viewer["metadata_html"]
+    metadata_table = viewer["metadata_table"]
+    info_panel = viewer["info_panel"]
+
+    def _on_dicom_selected(file_path):
         ds = read_dicom(file_path)
         if ds is None:
-            browser_status.value = _error_card("Could not read DICOM file.")
-            return
+            return "Could not read DICOM file."
 
         try:
             _ = ds.pixel_array
         except Exception:
-            browser_status.value = _error_card(
-                "No pixel data or missing transfer syntax handler."
-            )
-            return
+            return "No pixel data or missing transfer syntax handler."
 
         try:
             dicom_to_pil(ds)
-        except Exception as e:
-            browser_status.value = _error_card(f"Render error: {e}")
-            return
+        except Exception as exc:
+            return f"Render error: {exc}"
 
         state.current_ds = ds
         state.current_png_bytes = dicom_to_png_bytes(ds)
         state.current_file_name = file_path.name
-        browser_status.value = ""
 
-        # Show image, hide text
+        # Show image, hide placeholder
         image_widget.value = state.current_png_bytes
         image_widget.layout.display = ""
         image_placeholder.layout.display = "none"
-        text_viewer.layout.display = "none"
         image_label.value = (
             f"<div style='font-size:13px;color:#495057;padding:0 0 8px;'>"
             f"&#x1F52C; <b>{file_path.name}</b></div>"
@@ -186,55 +247,35 @@ def build_file_browser(state, viewer):
         else:
             info_panel.layout.display = "none"
 
-    def _display_text(file_path):
+        return None
+
+    return _build_browser(
+        title="&#x1F52C; Image Files",
+        default_path="/data",
+        file_filter=is_dicom_candidate,
+        file_icon="\U0001F52C",
+        on_file_click=_on_dicom_selected,
+    )
+
+
+def build_report_browser(state, viewer):
+    """Build text report file browser (second sidebar)."""
+
+    report_display = viewer["report_display"]
+
+    def _on_text_selected(file_path):
         try:
             content = file_path.read_text(errors="replace")[:50_000]
-        except Exception as e:
-            browser_status.value = _error_card(f"Could not read: {e}")
-            return
+        except Exception as exc:
+            return f"Could not read: {exc}"
 
-        safe = html.escape(content)
-        state.current_text = content
-        state.current_file_name = file_path.name
-        state.current_ds = None
-        state.current_png_bytes = b""
-        browser_status.value = ""
-
-        # Show text, hide image
-        text_viewer.value = (
-            f"<pre style='font-size:12px;line-height:1.6;margin:0;padding:12px;"
-            f"background:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;"
-            f"overflow:auto;max-height:450px;white-space:pre-wrap;"
-            f"word-wrap:break-word;"
-            f"font-family:SF Mono,Monaco,Consolas,monospace;'>{safe}</pre>"
-        )
-        text_viewer.layout.display = ""
-        image_widget.layout.display = "none"
-        image_placeholder.layout.display = "none"
-        image_label.value = (
-            f"<div style='font-size:13px;color:#495057;padding:0 0 8px;'>"
-            f"&#x1F4C4; <b>{file_path.name}</b></div>"
-        )
-
-        # Hide DICOM metadata
-        info_panel.layout.display = "none"
-
-    def _attach_report(file_path):
-        """Load a text file as an attached report below the image."""
-        try:
-            content = file_path.read_text(errors="replace")[:50_000]
-        except Exception as e:
-            browser_status.value = _error_card(f"Could not read: {e}")
-            return
-
-        safe = html.escape(content)
+        safe = html_mod.escape(content)
         state.report_text = content
         state.report_file_name = file_path.name
-        browser_status.value = ""
 
         report_display.value = (
             f"<div style='border:1px solid #e9ecef;border-radius:6px;"
-            f"margin-top:4px;overflow:hidden;'>"
+            f"margin-top:8px;overflow:hidden;'>"
             f"<div style='background:#e8f4fd;padding:6px 12px;font-size:12px;"
             f"font-weight:600;color:#1565c0;border-bottom:1px solid #e9ecef;'>"
             f"&#x1F4C4; {file_path.name}</div>"
@@ -243,67 +284,12 @@ def build_file_browser(state, viewer):
             f"word-wrap:break-word;"
             f"font-family:SF Mono,Monaco,Consolas,monospace;'>{safe}</pre></div>"
         )
-        report_hint.layout.display = "none"
-        clear_report_btn.layout.display = ""
+        return None
 
-    def _on_select(change):
-        if _refreshing[0]:
-            return
-        val = change["new"]
-        if not val or val == "(empty directory)":
-            return
-
-        # Parse item name (skip emoji prefix)
-        name = val.split(" ", 1)[1] if " " in val else val
-
-        # Parent directory
-        if name == "..":
-            _on_nav_up()
-            return
-
-        if state.current_dir is None:
-            return
-        target = state.current_dir / name
-
-        if target.is_dir():
-            state.current_dir = target
-            root_text.value = str(target)
-            _list_directory(target)
-        elif is_dicom_candidate(target):
-            _display_dicom(target)
-        elif _is_text_file(target):
-            # If report mode is on and an image is loaded, attach as report
-            if report_toggle.value and state.current_png_bytes:
-                _attach_report(target)
-            else:
-                _display_text(target)
-
-    browse_btn.on_click(_on_browse)
-    nav_up_btn.on_click(_on_nav_up)
-    file_list.observe(_on_select, names="value")
-
-    # Auto-browse default directory on startup
-    _on_browse()
-
-    sidebar = widgets.VBox(
-        [
-            widgets.HTML(
-                "<div style='font-size:13px;font-weight:700;color:#495057;"
-                "padding:0 0 8px;'>File Browser</div>"
-            ),
-            widgets.HBox(
-                [root_text, nav_up_btn, browse_btn],
-                layout=widgets.Layout(width="100%"),
-            ),
-            breadcrumb,
-            file_list,
-            browser_status,
-        ],
-        layout=widgets.Layout(
-            width="280px", min_width="280px",
-            padding="12px",
-        ),
+    return _build_browser(
+        title="&#x1F4C4; Text Reports",
+        default_path="/data",
+        file_filter=_is_text_file,
+        file_icon="\U0001F4C4",
+        on_file_click=_on_text_selected,
     )
-    sidebar.add_class("medgemma-sidebar")
-
-    return sidebar

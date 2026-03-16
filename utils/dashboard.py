@@ -9,7 +9,7 @@ from IPython.display import display
 
 from utils.state import AppState
 from utils.components.app_bar import build_app_bar
-from utils.components.file_browser import build_file_browser
+from utils.components.file_browser import build_image_browser, build_report_browser
 from utils.components.viewer_tab import build_viewer
 from utils.components.chat_tab import build_chat
 
@@ -49,6 +49,12 @@ _APP_CSS = """<style>
 .medgemma-cred {
     background-color: #f8f9fa !important;
 }
+.medgemma-toggle-active {
+    opacity: 1 !important;
+}
+.medgemma-toggle-inactive {
+    opacity: 0.6 !important;
+}
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>"""
 
@@ -60,7 +66,47 @@ def build_and_display_app():
     viewer = build_viewer(state)
     chat = build_chat(state)
     header, cred_section = build_app_bar(state)
-    sidebar = build_file_browser(state, viewer)
+
+    image_browser = build_image_browser(state, viewer)
+    report_browser = build_report_browser(state, viewer)
+
+    # --- Toggle switches (both on by default) ---
+    image_toggle = widgets.ToggleButton(
+        value=True,
+        description=" Image Selection",
+        icon="image",
+        button_style="info",
+        layout=widgets.Layout(width="180px", height="34px"),
+    )
+    report_toggle = widgets.ToggleButton(
+        value=True,
+        description=" Text Report",
+        icon="file-text-o",
+        button_style="info",
+        layout=widgets.Layout(width="180px", height="34px"),
+    )
+
+    def _on_image_toggle(change):
+        image_browser.layout.display = "" if change["new"] else "none"
+
+    def _on_report_toggle(change):
+        report_browser.layout.display = "" if change["new"] else "none"
+        if not change["new"]:
+            # Clear report when toggled off
+            state.report_text = ""
+            state.report_file_name = ""
+            viewer["report_display"].value = ""
+
+    image_toggle.observe(_on_image_toggle, names="value")
+    report_toggle.observe(_on_report_toggle, names="value")
+
+    toggle_bar = widgets.HBox(
+        [image_toggle, report_toggle],
+        layout=widgets.Layout(
+            padding="8px 16px",
+            border_bottom="1px solid #dee2e6",
+        ),
+    )
 
     # Main content: viewer + chat side by side, metadata below
     main_content = widgets.VBox(
@@ -74,15 +120,15 @@ def build_and_display_app():
         layout=widgets.Layout(flex="1", padding="16px"),
     )
 
-    # Content area: sidebar + main
+    # Content area: browsers + main
     content = widgets.HBox(
-        [sidebar, main_content],
+        [image_browser, report_browser, main_content],
         layout=widgets.Layout(width="100%"),
     )
 
     css = widgets.HTML(_APP_CSS)
     app = widgets.VBox(
-        [css, header, cred_section, content],
+        [css, header, cred_section, toggle_bar, content],
         layout=widgets.Layout(width="100%"),
     )
     app.add_class("medgemma-app")

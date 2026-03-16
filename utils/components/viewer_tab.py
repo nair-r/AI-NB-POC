@@ -1,4 +1,4 @@
-"""Image display, text viewer, report attachment, and metadata panel."""
+"""Image display, report display, and metadata panel."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def _metadata_table(rows):
 
 
 def build_viewer(state):
-    """Build image/text display, report attachment, and metadata widgets.
+    """Build image display, report display, and metadata widgets.
 
     Returns a dict with keys:
         viewer_panel      - VBox for the main viewer area
@@ -37,8 +37,6 @@ def build_viewer(state):
         image_widget      - Image widget (for cross-component updates)
         image_placeholder - HTML placeholder (hidden when content loaded)
         image_label       - HTML label showing filename
-        text_viewer       - HTML widget for text file content
-        report_toggle     - Checkbox to enable report attachment
         report_display    - HTML widget for attached report content
         metadata_html     - HTML widget for metadata table
         metadata_table    - formatter function for metadata rows
@@ -53,58 +51,7 @@ def build_viewer(state):
         ),
     )
     image_label = widgets.HTML(value="")
-
-    text_viewer = widgets.HTML(
-        value="",
-        layout=widgets.Layout(width="100%", display="none"),
-    )
-
-    # --- Report attachment section ---
-    report_toggle = widgets.Checkbox(
-        value=False,
-        description="Include text report",
-        indent=False,
-        layout=widgets.Layout(margin="12px 0 0 0"),
-    )
-
-    report_hint = widgets.HTML(
-        value=(
-            "<div style='font-size:12px;color:#6c757d;padding:4px 0;'>"
-            "&#x1F4C4; Click a text file in the file browser to attach it.</div>"
-        ),
-    )
-
     report_display = widgets.HTML(value="")
-
-    clear_report_btn = widgets.Button(
-        description="Clear Report", icon="times",
-        button_style="warning",
-        layout=widgets.Layout(width="130px", height="28px", display="none"),
-    )
-
-    report_section = widgets.VBox(
-        [report_hint, report_display, clear_report_btn],
-        layout=widgets.Layout(display="none", padding="4px 0 0 0"),
-    )
-
-    def _toggle_report(change):
-        report_section.layout.display = "" if change["new"] else "none"
-        if not change["new"]:
-            state.report_text = ""
-            state.report_file_name = ""
-            report_display.value = ""
-            clear_report_btn.layout.display = "none"
-
-    def _clear_report(_btn):
-        state.report_text = ""
-        state.report_file_name = ""
-        report_display.value = ""
-        clear_report_btn.layout.display = "none"
-        report_hint.layout.display = ""
-
-    report_toggle.observe(_toggle_report, names="value")
-    clear_report_btn.on_click(_clear_report)
-
     metadata_html = widgets.HTML(value="")
 
     viewer_panel = widgets.VBox(
@@ -112,9 +59,7 @@ def build_viewer(state):
             image_label,
             image_placeholder,
             image_widget,
-            text_viewer,
-            report_toggle,
-            report_section,
+            report_display,
         ],
         layout=widgets.Layout(
             width="55%", padding="0 16px 0 0",
@@ -140,11 +85,7 @@ def build_viewer(state):
         "image_widget": image_widget,
         "image_placeholder": image_placeholder,
         "image_label": image_label,
-        "text_viewer": text_viewer,
-        "report_toggle": report_toggle,
-        "report_hint": report_hint,
         "report_display": report_display,
-        "clear_report_btn": clear_report_btn,
         "metadata_html": metadata_html,
         "metadata_table": _metadata_table,
     }
