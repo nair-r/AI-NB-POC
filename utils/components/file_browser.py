@@ -76,6 +76,12 @@ def build_file_browser(state, viewer):
     metadata_table = viewer["metadata_table"]
     info_panel = viewer["info_panel"]
 
+    # Report widgets
+    report_toggle = viewer["report_toggle"]
+    report_hint = viewer["report_hint"]
+    report_display = viewer["report_display"]
+    clear_report_btn = viewer["clear_report_btn"]
+
     # Guard flag to prevent re-entrant selection events during list refresh
     _refreshing = [False]
 
@@ -213,6 +219,33 @@ def build_file_browser(state, viewer):
         # Hide DICOM metadata
         info_panel.layout.display = "none"
 
+    def _attach_report(file_path):
+        """Load a text file as an attached report below the image."""
+        try:
+            content = file_path.read_text(errors="replace")[:50_000]
+        except Exception as e:
+            browser_status.value = _error_card(f"Could not read: {e}")
+            return
+
+        safe = html.escape(content)
+        state.report_text = content
+        state.report_file_name = file_path.name
+        browser_status.value = ""
+
+        report_display.value = (
+            f"<div style='border:1px solid #e9ecef;border-radius:6px;"
+            f"margin-top:4px;overflow:hidden;'>"
+            f"<div style='background:#e8f4fd;padding:6px 12px;font-size:12px;"
+            f"font-weight:600;color:#1565c0;border-bottom:1px solid #e9ecef;'>"
+            f"&#x1F4C4; {file_path.name}</div>"
+            f"<pre style='font-size:12px;line-height:1.5;margin:0;padding:10px 12px;"
+            f"background:#ffffff;max-height:200px;overflow:auto;white-space:pre-wrap;"
+            f"word-wrap:break-word;"
+            f"font-family:SF Mono,Monaco,Consolas,monospace;'>{safe}</pre></div>"
+        )
+        report_hint.layout.display = "none"
+        clear_report_btn.layout.display = ""
+
     def _on_select(change):
         if _refreshing[0]:
             return
@@ -239,7 +272,11 @@ def build_file_browser(state, viewer):
         elif is_dicom_candidate(target):
             _display_dicom(target)
         elif _is_text_file(target):
-            _display_text(target)
+            # If report mode is on and an image is loaded, attach as report
+            if report_toggle.value and state.current_png_bytes:
+                _attach_report(target)
+            else:
+                _display_text(target)
 
     browse_btn.on_click(_on_browse)
     nav_up_btn.on_click(_on_nav_up)

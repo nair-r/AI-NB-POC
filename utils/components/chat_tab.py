@@ -94,10 +94,18 @@ def build_chat(state):
         send_button.disabled = True
         spinner.value = _SPINNER_HTML
 
+        # Prepend report context if attached
+        full_prompt = prompt
+        if state.report_text:
+            full_prompt = (
+                f"Clinical report ({state.report_file_name}):\n"
+                f"{state.report_text}\n\n---\n\n{prompt}"
+            )
+
         t0 = time.time()
         try:
             payload = {
-                "text": prompt,
+                "text": full_prompt,
                 "image": base64.b64encode(state.current_png_bytes).decode("utf-8"),
             }
             resp = state.sm_client.invoke_endpoint(
@@ -112,7 +120,13 @@ def build_chat(state):
                 f"<div style='font-size:11px;color:#adb5bd;margin-top:8px;'>"
                 f"Response time: {elapsed:.1f}s</div>"
             )
-            response_area.value = _chat_bubble(prompt, generated) + timing
+            report_note = ""
+            if state.report_text:
+                report_note = (
+                    f"<div style='font-size:11px;color:#1565c0;margin-bottom:8px;'>"
+                    f"&#x1F4CE; Report attached: {state.report_file_name}</div>"
+                )
+            response_area.value = report_note + _chat_bubble(prompt, generated) + timing
 
         except botocore.exceptions.ClientError as e:
             code = e.response["Error"]["Code"]

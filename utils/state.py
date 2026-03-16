@@ -13,4 +13,6 @@ class AppState(traitlets.HasTraits):
     current_png_bytes = traitlets.Bytes(default_value=b"")
     current_text = traitlets.Unicode(default_value="")
     current_file_name = traitlets.Unicode(default_value="")
+    report_text = traitlets.Unicode(default_value="")
+    report_file_name = traitlets.Unicode(default_value="")
     sm_client = traitlets.Any(default_value=None)
