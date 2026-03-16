@@ -6,32 +6,17 @@ import os
 
 import boto3
 
-from utils.config import ENDPOINT_NAME, REGION
-
-
-def _success_html():
-    return (
-        "<div style='color:#2e7d32;padding:8px;border-left:4px solid #2e7d32;"
-        f"background:#f1f8e9;'>Connected. Region: <b>{REGION}</b>,"
-        f" Endpoint: <b>{ENDPOINT_NAME}</b></div>"
-    )
-
-
-def _error_html(msg):
-    return (
-        f"<div style='color:#d32f2f;padding:8px;border-left:4px solid #d32f2f;"
-        f"background:#fff3f3;'>{msg}</div>"
-    )
+from utils.config import REGION
 
 
 def try_init_client(access_key_id, secret_access_key):
     """Try to create a SageMaker runtime client with the given credentials.
 
     Returns:
-        Tuple of (client_or_None, status_html_string).
+        Tuple of (client, None) on success or (None, error_message) on failure.
     """
     if not access_key_id or not secret_access_key:
-        return None, _error_html("Both Access Key ID and Secret Access Key are required.")
+        return None, "Both Access Key ID and Secret Access Key are required."
     try:
         client = boto3.client(
             "sagemaker-runtime",
@@ -39,17 +24,17 @@ def try_init_client(access_key_id, secret_access_key):
             aws_access_key_id=access_key_id,
             aws_secret_access_key=secret_access_key,
         )
-        return client, _success_html()
+        return client, None
     except Exception as e:
-        return None, _error_html(f"AWS client error: {e}")
+        return None, f"AWS client error: {e}"
 
 
 def try_init_from_env():
     """Try to create a client from environment variables.
 
     Returns:
-        Tuple of (client_or_None, status_html_or_None). Returns (None, None)
-        if env vars are not set (so the dashboard knows to show input fields).
+        Tuple of (client, None) on success, (None, error_message) on failure,
+        or (None, None) if env vars are not set.
     """
     access_key = os.environ.get("AWS_ACCESS_KEY_ID", "")
     secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY", "")
