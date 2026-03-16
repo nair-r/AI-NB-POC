@@ -13,11 +13,10 @@ import ipywidgets as widgets
 from utils.config import CONTENT_TYPE, ENDPOINT_NAME
 
 _SPINNER_HTML = (
-    '<div style="display:flex;align-items:center;gap:8px;">'
-    '<div style="width:20px;height:20px;border:3px solid #ccc;border-top-color:#1976d2;'
-    'border-radius:50%;animation:spin 0.8s linear infinite;"></div>'
-    '<span>Sending to MedGemma...</span></div>'
-    '<style>@keyframes spin{to{transform:rotate(360deg)}}</style>'
+    '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;">'
+    '<div style="width:18px;height:18px;border:2px solid #e0e0e0;'
+    'border-top-color:#1976d2;border-radius:50%;animation:spin 0.8s linear infinite;"></div>'
+    '<span style="font-size:13px;color:#6c757d;">Analyzing...</span></div>'
 )
 
 
@@ -32,19 +31,23 @@ def _md_to_html(text):
 def _chat_bubble(prompt, response):
     response_html = _md_to_html(response)
     return (
-        "<div style='max-width:100%;'>"
-        "<div style='background:#e3f2fd;padding:12px 16px;border-radius:12px 12px 12px 0;"
-        "margin-bottom:8px;font-size:13px;'>"
-        f"<b>You:</b> {prompt}</div>"
-        "<div style='background:#f5f5f5;padding:12px 16px;border-radius:12px 12px 0 12px;"
-        f"font-size:13px;line-height:1.5;'><b>MedGemma:</b><br>{response_html}</div></div>"
+        "<div style='display:flex;flex-direction:column;gap:10px;'>"
+        "<div style='background:#e3f2fd;padding:10px 14px;border-radius:10px 10px 10px 2px;"
+        "font-size:13px;line-height:1.5;'>"
+        "<div style='font-size:11px;font-weight:600;color:#1565c0;margin-bottom:4px;'>You</div>"
+        f"{prompt}</div>"
+        "<div style='background:#f5f5f5;padding:10px 14px;border-radius:10px 10px 2px 10px;"
+        "font-size:13px;line-height:1.6;'>"
+        "<div style='font-size:11px;font-weight:600;color:#495057;margin-bottom:4px;'>"
+        "MedGemma</div>"
+        f"{response_html}</div></div>"
     )
 
 
 def _error_card(msg):
     return (
-        f"<div style='color:#d32f2f;background:#fff3f3;padding:12px;"
-        f"border-left:4px solid #d32f2f;border-radius:4px;'>{msg}</div>"
+        f"<div style='color:#d32f2f;background:#fff3f3;padding:10px 12px;"
+        f"border-left:3px solid #d32f2f;border-radius:4px;font-size:13px;'>{msg}</div>"
     )
 
 
@@ -54,33 +57,32 @@ def build_chat(state):
     prompt_area = widgets.Textarea(
         value="Describe this medical image. What findings are visible?",
         placeholder="Enter your question about the image...",
-        rows=4,
+        rows=3,
         layout=widgets.Layout(width="100%"),
     )
     send_button = widgets.Button(
-        description=" Ask MedGemma",
+        description="Ask MedGemma",
         icon="paper-plane",
         button_style="primary",
-        layout=widgets.Layout(width="200px", height="40px"),
+        layout=widgets.Layout(width="100%", height="38px"),
     )
     spinner = widgets.HTML(value="")
     response_area = widgets.HTML(
-        value="<div style='color:#888;padding:16px;'>Response will appear here after inference.</div>",
-    )
-    multi_turn_note = widgets.HTML(
         value=(
-            "<div style='font-size:11px;color:#999;margin-top:8px;'>"
-            "Single-shot inference only. Multi-turn conversation coming soon.</div>"
+            "<div style='color:#6c757d;padding:24px;text-align:center;"
+            "font-size:13px;'>Response will appear here after inference.</div>"
         ),
     )
 
     def _on_send(_btn):
         if not state.current_png_bytes:
-            response_area.value = _error_card("No image loaded. Select a DICOM file first.")
+            response_area.value = _error_card(
+                "No image loaded. Select a DICOM file first."
+            )
             return
         if state.sm_client is None:
             response_area.value = _error_card(
-                "AWS credentials not configured. Enter them above and click Connect."
+                "Not connected to AWS. Enter credentials above."
             )
             return
 
@@ -106,24 +108,23 @@ def build_chat(state):
             elapsed = time.time() - t0
             result = json.loads(resp["Body"].read().decode("utf-8"))
             generated = result.get("generated_text", "(No text in response)")
-            timing_html = (
-                f"<div style='font-size:11px;color:#777;margin-top:4px;'>"
+            timing = (
+                f"<div style='font-size:11px;color:#adb5bd;margin-top:8px;'>"
                 f"Response time: {elapsed:.1f}s</div>"
             )
-            response_area.value = _chat_bubble(prompt, generated) + timing_html
+            response_area.value = _chat_bubble(prompt, generated) + timing
 
         except botocore.exceptions.ClientError as e:
             code = e.response["Error"]["Code"]
             if code == "ModelError":
                 response_area.value = _error_card(
-                    "Model error — the endpoint may still be loading or rejected the input."
+                    "Model error &mdash; endpoint may still be loading."
                 )
             else:
                 response_area.value = _error_card(f"AWS error ({code}): {e}")
         except botocore.exceptions.ReadTimeoutError:
             response_area.value = _error_card(
-                "Request timed out. The endpoint may be cold-starting "
-                "(can take 5-10 min on first call)."
+                "Request timed out. Endpoint may be cold-starting (5-10 min)."
             )
         except Exception as e:
             response_area.value = _error_card(f"Unexpected error: {e}")
@@ -135,11 +136,17 @@ def build_chat(state):
 
     return widgets.VBox(
         [
-            widgets.HTML("<h4 style='margin:0 0 4px 0;'>MedGemma</h4>"),
-            multi_turn_note,
+            widgets.HTML(
+                "<div style='font-size:13px;font-weight:700;color:#495057;"
+                "padding:0 0 8px;'>MedGemma Analysis</div>"
+            ),
             prompt_area,
-            widgets.HBox([send_button, spinner]),
+            send_button,
+            spinner,
             response_area,
         ],
-        layout=widgets.Layout(width="50%", padding="8px"),
+        layout=widgets.Layout(
+            width="45%", padding="0 0 0 16px",
+            border_left="1px solid #e9ecef",
+        ),
     )

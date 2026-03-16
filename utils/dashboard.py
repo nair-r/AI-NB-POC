@@ -15,6 +15,43 @@ from utils.components.chat_tab import build_chat
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
+_APP_CSS = """<style>
+.medgemma-app .widget-select select {
+    font-size: 13px;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    cursor: pointer;
+    border: 1px solid #dee2e6 !important;
+    border-radius: 6px !important;
+}
+.medgemma-app .widget-text input,
+.medgemma-app .widget-password input,
+.medgemma-app .widget-textarea textarea {
+    border-radius: 6px !important;
+    border: 1px solid #dee2e6 !important;
+}
+.medgemma-app .widget-text input:focus,
+.medgemma-app .widget-password input:focus,
+.medgemma-app .widget-textarea textarea:focus {
+    border-color: #1976d2 !important;
+    box-shadow: 0 0 0 2px rgba(25,118,210,0.12) !important;
+    outline: none !important;
+}
+.medgemma-app .widget-button button {
+    border-radius: 6px !important;
+    font-weight: 500 !important;
+    transition: opacity 0.15s;
+}
+.medgemma-app .widget-button button:hover { opacity: 0.85; }
+.medgemma-sidebar {
+    background-color: #f8f9fa !important;
+    border-right: 1px solid #dee2e6 !important;
+}
+.medgemma-cred {
+    background-color: #f8f9fa !important;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>"""
+
 
 def build_and_display_app():
     """Build the full dashboard widget tree and display it."""
@@ -22,15 +59,32 @@ def build_and_display_app():
     state = AppState()
     viewer = build_viewer(state)
     chat = build_chat(state)
+    header, cred_section = build_app_bar(state)
+    sidebar = build_file_browser(state, viewer)
 
-    app = widgets.VBox([
-        build_app_bar(state),
-        widgets.HBox(
-            [viewer["image_panel"], chat],
-            layout=widgets.Layout(min_height="420px"),
-        ),
-        build_file_browser(state, viewer),
-        viewer["info_panel"],
-    ])
+    # Main content: viewer + chat side by side, metadata below
+    main_content = widgets.VBox(
+        [
+            widgets.HBox(
+                [viewer["viewer_panel"], chat],
+                layout=widgets.Layout(min_height="450px"),
+            ),
+            viewer["info_panel"],
+        ],
+        layout=widgets.Layout(flex="1", padding="16px"),
+    )
+
+    # Content area: sidebar + main
+    content = widgets.HBox(
+        [sidebar, main_content],
+        layout=widgets.Layout(width="100%"),
+    )
+
+    css = widgets.HTML(_APP_CSS)
+    app = widgets.VBox(
+        [css, header, cred_section, content],
+        layout=widgets.Layout(width="100%"),
+    )
+    app.add_class("medgemma-app")
 
     display(app)

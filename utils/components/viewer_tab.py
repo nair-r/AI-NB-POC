@@ -1,4 +1,4 @@
-"""Image display and metadata panel."""
+"""Image display, text viewer, and metadata panel."""
 
 from __future__ import annotations
 
@@ -6,32 +6,38 @@ import ipywidgets as widgets
 
 _PLACEHOLDER_HTML = (
     "<div style='display:flex;align-items:center;justify-content:center;"
-    "width:100%;min-height:400px;background:#e0e0e0;border-radius:4px;"
-    "color:#888;font-size:16px;'>Select an image</div>"
+    "width:100%;min-height:350px;background:#f8f9fa;border-radius:8px;"
+    "border:2px dashed #dee2e6;color:#6c757d;font-size:14px;"
+    "flex-direction:column;gap:8px;'>"
+    "<span style='font-size:36px;opacity:0.5;'>&#128203;</span>"
+    "<span>Select a file from the browser</span></div>"
 )
 
 
 def _metadata_table(rows):
     trs = "".join(
-        f"<tr><td style='padding:2px 8px;font-weight:bold;white-space:nowrap;'>{k}</td>"
-        f"<td style='padding:2px 8px;'>{v}</td></tr>"
+        f"<tr><td style='padding:4px 12px;font-weight:600;white-space:nowrap;"
+        f"color:#495057;font-size:12px;border-bottom:1px solid #f0f0f0;'>{k}</td>"
+        f"<td style='padding:4px 12px;font-size:12px;color:#6c757d;"
+        f"border-bottom:1px solid #f0f0f0;'>{v}</td></tr>"
         for k, v in rows
     )
     return (
-        "<table style='font-size:12px;border-collapse:collapse;"
-        f"margin-top:8px;width:100%;'>{trs}</table>"
+        f"<table style='font-size:12px;border-collapse:collapse;width:100%;'>"
+        f"{trs}</table>"
     )
 
 
 def build_viewer(state):
-    """Build image display and metadata widgets.
+    """Build image/text display and metadata widgets.
 
     Returns a dict with keys:
-        image_panel       - VBox for the left image area
-        info_panel        - VBox for the full-width metadata area
+        viewer_panel      - VBox for the main viewer area
+        info_panel        - VBox for DICOM metadata (hidden until image loaded)
         image_widget      - Image widget (for cross-component updates)
-        image_placeholder - HTML placeholder (hidden when image loaded)
+        image_placeholder - HTML placeholder (hidden when content loaded)
         image_label       - HTML label showing filename
+        text_viewer       - HTML widget for text file content
         metadata_html     - HTML widget for metadata table
         metadata_table    - formatter function for metadata rows
     """
@@ -46,38 +52,45 @@ def build_viewer(state):
     )
     image_label = widgets.HTML(value="")
 
-    metadata_html = widgets.HTML(
-        value="<div style='color:#888;padding:8px;font-size:13px;'>No image information to display.</div>",
+    text_viewer = widgets.HTML(
+        value="",
+        layout=widgets.Layout(width="100%", display="none"),
     )
 
-    image_panel = widgets.VBox(
+    metadata_html = widgets.HTML(value="")
+
+    viewer_panel = widgets.VBox(
         [
-            widgets.HTML("<h4 style='margin:0 0 4px 0;'>Image</h4>"),
             image_label,
             image_placeholder,
             image_widget,
+            text_viewer,
         ],
         layout=widgets.Layout(
-            width="50%", padding="8px", border_right="1px solid #e0e0e0",
+            width="55%", padding="0 16px 0 0",
+            min_height="400px",
         ),
     )
 
     info_panel = widgets.VBox(
         [
-            widgets.HTML("<h4 style='margin:0 0 4px 0;'>Image Information</h4>"),
+            widgets.HTML(
+                "<div style='font-size:13px;font-weight:700;color:#495057;"
+                "padding:8px 0 4px;border-top:1px solid #e9ecef;margin-top:12px;'>"
+                "DICOM Metadata</div>"
+            ),
             metadata_html,
         ],
-        layout=widgets.Layout(
-            padding="8px", border_top="1px solid #e0e0e0", width="100%",
-        ),
+        layout=widgets.Layout(padding="0", width="100%", display="none"),
     )
 
     return {
-        "image_panel": image_panel,
+        "viewer_panel": viewer_panel,
         "info_panel": info_panel,
         "image_widget": image_widget,
         "image_placeholder": image_placeholder,
         "image_label": image_label,
+        "text_viewer": text_viewer,
         "metadata_html": metadata_html,
         "metadata_table": _metadata_table,
     }

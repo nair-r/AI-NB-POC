@@ -1,4 +1,4 @@
-"""Credential form and connection status bar."""
+"""App header bar and credential form."""
 
 from __future__ import annotations
 
@@ -8,65 +8,87 @@ from utils.aws_client import try_init_client, try_init_from_env
 from utils.config import ENDPOINT_NAME, REGION
 
 
-def _success_html():
-    return (
-        "<div style='color:#2e7d32;padding:8px;border-left:4px solid #2e7d32;"
-        f"background:#f1f8e9;'>Connected. Region: <b>{REGION}</b>,"
-        f" Endpoint: <b>{ENDPOINT_NAME}</b></div>"
-    )
-
-
-def _error_status_html(msg):
-    return (
-        f"<div style='color:#d32f2f;padding:8px;border-left:4px solid #d32f2f;"
-        f"background:#fff3f3;'>{msg}</div>"
-    )
-
-
 def build_app_bar(state):
-    """Build the credential form and connection status widgets."""
+    """Build header bar and credential section.
 
-    cred_status = widgets.HTML(value="")
+    Returns:
+        Tuple of (header_widget, credential_section_widget).
+    """
+
+    header = widgets.HTML(value=(
+        "<div style='background:linear-gradient(135deg,#1565c0,#0d47a1);"
+        "color:white;padding:14px 24px;'>"
+        "<div style='font-size:18px;font-weight:700;letter-spacing:-0.3px;'>"
+        "&#x1F3E5; MedGemma Inference Dashboard</div>"
+        "<div style='font-size:11px;opacity:0.8;margin-top:2px;'>"
+        "Medical image analysis powered by MedGemma on SageMaker</div></div>"
+    ))
+
+    status_bar = widgets.HTML(value="")
 
     access_key_input = widgets.Text(
-        description="Access Key ID:",
         placeholder="AKIA...",
-        layout=widgets.Layout(width="400px"),
-        style={"description_width": "120px"},
+        layout=widgets.Layout(width="100%"),
     )
     secret_key_input = widgets.Password(
-        description="Secret Key:",
-        placeholder="Enter your AWS secret access key",
-        layout=widgets.Layout(width="400px"),
-        style={"description_width": "120px"},
+        placeholder="Enter secret access key",
+        layout=widgets.Layout(width="100%"),
     )
     connect_btn = widgets.Button(
-        description="Connect", icon="plug", button_style="warning",
+        description="Connect", icon="plug", button_style="primary",
         layout=widgets.Layout(width="140px", height="36px"),
     )
-    cred_form = widgets.VBox(
+
+    cred_section = widgets.VBox(
         [
             widgets.HTML(
-                "<div style='padding:4px 0 4px 0;font-size:13px;color:#555;'>"
-                "AWS credentials not found in environment. Enter them below:</div>"
+                "<div style='font-size:13px;color:#495057;font-weight:600;"
+                "padding:0 0 8px;'>AWS Credentials</div>"
             ),
-            access_key_input,
-            secret_key_input,
-            connect_btn,
+            widgets.HBox([
+                widgets.VBox([
+                    widgets.HTML(
+                        "<div style='font-size:11px;color:#6c757d;"
+                        "margin-bottom:2px;'>Access Key ID</div>"
+                    ),
+                    access_key_input,
+                ], layout=widgets.Layout(flex="1")),
+                widgets.VBox([
+                    widgets.HTML(
+                        "<div style='font-size:11px;color:#6c757d;"
+                        "margin-bottom:2px;'>Secret Access Key</div>"
+                    ),
+                    secret_key_input,
+                ], layout=widgets.Layout(flex="1")),
+                widgets.VBox([
+                    widgets.HTML(
+                        "<div style='font-size:11px;color:transparent;"
+                        "margin-bottom:2px;'>.</div>"
+                    ),
+                    connect_btn,
+                ]),
+            ]),
+            status_bar,
         ],
-        layout=widgets.Layout(padding="8px", border="1px solid #e0e0e0", margin="0 0 8px 0"),
+        layout=widgets.Layout(padding="12px 24px", border_bottom="1px solid #dee2e6"),
     )
+    cred_section.add_class("medgemma-cred")
 
     # Try env vars first
     client, error = try_init_from_env()
     if client is not None:
         state.sm_client = client
-        cred_status.value = _success_html()
-        cred_form.layout.display = "none"
+        status_bar.value = (
+            "<div style='color:#2e7d32;font-size:12px;padding:6px 0;'>"
+            f"&#10003; Connected &mdash; Region: <b>{REGION}</b>, "
+            f"Endpoint: <b>{ENDPOINT_NAME}</b></div>"
+        )
+        cred_section.layout.display = "none"
     elif error is not None:
-        cred_status.value = _error_status_html(error)
-    else:
-        cred_form.layout.display = ""
+        status_bar.value = (
+            f"<div style='color:#d32f2f;font-size:12px;padding:6px 0;'>"
+            f"&#10007; {error}</div>"
+        )
 
     def _on_connect(_btn):
         client, error = try_init_client(
@@ -75,11 +97,18 @@ def build_app_bar(state):
         )
         if client is not None:
             state.sm_client = client
-            cred_status.value = _success_html()
-            cred_form.layout.display = "none"
+            status_bar.value = (
+                "<div style='color:#2e7d32;font-size:12px;padding:6px 0;'>"
+                f"&#10003; Connected &mdash; Region: <b>{REGION}</b>, "
+                f"Endpoint: <b>{ENDPOINT_NAME}</b></div>"
+            )
+            cred_section.layout.display = "none"
         else:
-            cred_status.value = _error_status_html(error)
+            status_bar.value = (
+                f"<div style='color:#d32f2f;font-size:12px;padding:6px 0;'>"
+                f"&#10007; {error}</div>"
+            )
 
     connect_btn.on_click(_on_connect)
 
-    return widgets.VBox([cred_form, cred_status])
+    return header, cred_section
