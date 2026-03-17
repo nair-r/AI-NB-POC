@@ -280,7 +280,7 @@ def build_report_browser(state, viewer):
             f"font-weight:600;color:#1565c0;border-bottom:1px solid #e9ecef;'>"
             f"&#x1F4C4; {file_path.name}</div>"
             f"<pre style='font-size:12px;line-height:1.5;margin:0;padding:10px 12px;"
-            f"background:#ffffff;max-height:200px;overflow:auto;white-space:pre-wrap;"
+            f"background:#ffffff;max-height:400px;overflow:auto;white-space:pre-wrap;"
             f"word-wrap:break-word;"
             f"font-family:SF Mono,Monaco,Consolas,monospace;'>{safe}</pre></div>"
         )
