@@ -51,6 +51,23 @@ def _error_card(msg):
     )
 
 
+def _format_payload_summary(payload, has_report_context):
+    """Return an HTML summary of the inference payload (no raw data)."""
+    text_len = len(payload.get("text", ""))
+    img_b64 = payload.get("image", "")
+    img_kb = len(img_b64) * 3 / 4 / 1024  # approx decoded size
+    report_flag = "Yes (prepended)" if has_report_context else "No"
+    return (
+        "<div style='background:#f0f4f8;border:1px solid #dee2e6;border-radius:6px;"
+        "padding:10px 14px;margin:4px 0 8px;font-size:12px;font-family:monospace;'>"
+        "<div style='font-weight:700;margin-bottom:6px;color:#495057;'>Payload Summary</div>"
+        f"<div><b>text</b> &nbsp; String &mdash; {text_len:,} chars &nbsp;|&nbsp; "
+        f"Report context: {report_flag}</div>"
+        f"<div><b>image</b> &nbsp; Base64 PNG &mdash; ~{img_kb:,.1f} KB (encoded)</div>"
+        "</div>"
+    )
+
+
 def build_chat(state):
     """Build the MedGemma prompt and response panel."""
 
@@ -66,7 +83,16 @@ def build_chat(state):
         button_style="primary",
         layout=widgets.Layout(width="100%", height="38px"),
     )
+    payload_toggle = widgets.Checkbox(
+        value=False,
+        description="Show Payload",
+        indent=False,
+    )
+    payload_toggle_bar = widgets.HBox([payload_toggle])
+    payload_toggle_bar.add_class("medgemma-switch")
+
     spinner = widgets.HTML(value="")
+    payload_display = widgets.HTML(value="")
     response_area = widgets.HTML(
         value=(
             "<div style='color:#6c757d;padding:24px;text-align:center;"
@@ -93,6 +119,7 @@ def build_chat(state):
 
         send_button.disabled = True
         spinner.value = _SPINNER_HTML
+        payload_display.value = ""
 
         # Prepend report context if attached
         full_prompt = prompt
@@ -128,6 +155,11 @@ def build_chat(state):
                 )
             response_area.value = report_note + _chat_bubble(prompt, generated) + timing
 
+            if payload_toggle.value:
+                payload_display.value = _format_payload_summary(
+                    payload, has_report_context=bool(state.report_text)
+                )
+
         except botocore.exceptions.ClientError as e:
             code = e.response["Error"]["Code"]
             if code == "ModelError":
@@ -154,9 +186,11 @@ def build_chat(state):
                 "<div style='font-size:13px;font-weight:700;color:#495057;"
                 "padding:0 0 8px;'>MedGemma Analysis</div>"
             ),
+            payload_toggle_bar,
             prompt_area,
             send_button,
             spinner,
+            payload_display,
             response_area,
         ],
         layout=widgets.Layout(

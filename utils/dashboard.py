@@ -49,11 +49,40 @@ _APP_CSS = """<style>
 .medgemma-cred {
     background-color: #f8f9fa !important;
 }
-.medgemma-toggle-active {
-    opacity: 1 !important;
+.medgemma-switch .widget-checkbox input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 40px;
+    height: 22px;
+    background: #adb5bd;
+    border-radius: 11px;
+    position: relative;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin: 0;
+    flex-shrink: 0;
 }
-.medgemma-toggle-inactive {
-    opacity: 0.6 !important;
+.medgemma-switch .widget-checkbox input[type="checkbox"]::before {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s;
+}
+.medgemma-switch .widget-checkbox input[type="checkbox"]:checked {
+    background: #1976d2;
+}
+.medgemma-switch .widget-checkbox input[type="checkbox"]:checked::before {
+    transform: translateX(18px);
+}
+.medgemma-switch .widget-checkbox label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #495057;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>"""
@@ -71,19 +100,15 @@ def build_and_display_app():
     report_browser = build_report_browser(state, viewer)
 
     # --- Toggle switches (both on by default) ---
-    image_toggle = widgets.ToggleButton(
+    image_toggle = widgets.Checkbox(
         value=True,
-        description=" Image Selection",
-        icon="image",
-        button_style="info",
-        layout=widgets.Layout(width="180px", height="34px"),
+        description="Image Selection",
+        indent=False,
     )
-    report_toggle = widgets.ToggleButton(
+    report_toggle = widgets.Checkbox(
         value=True,
-        description=" Text Report",
-        icon="file-text-o",
-        button_style="info",
-        layout=widgets.Layout(width="180px", height="34px"),
+        description="Text Report",
+        indent=False,
     )
 
     def _on_image_toggle(change):
@@ -104,9 +129,11 @@ def build_and_display_app():
         [image_toggle, report_toggle],
         layout=widgets.Layout(
             padding="8px 16px",
+            gap="24px",
             border_bottom="1px solid #dee2e6",
         ),
     )
+    toggle_bar.add_class("medgemma-switch")
 
     # Main content: viewer + chat side by side, metadata below
     main_content = widgets.VBox(
