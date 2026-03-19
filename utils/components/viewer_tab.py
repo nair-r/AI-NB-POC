@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import ipywidgets as widgets
 
+from utils.dicom_utils import extract_metadata
+
 _PLACEHOLDER_HTML = (
     "<div style='display:flex;align-items:center;justify-content:center;"
     "width:100%;min-height:350px;background:#f8f9fa;border-radius:8px;"
@@ -54,11 +56,50 @@ def build_viewer(state):
     report_display = widgets.HTML(value="")
     metadata_html = widgets.HTML(value="")
 
+    series_info_label = widgets.HTML(
+        value="",
+        layout=widgets.Layout(display="none"),
+    )
+    slice_slider = widgets.IntSlider(
+        min=0, max=0, value=0,
+        description="Slice:",
+        layout=widgets.Layout(width="100%", display="none"),
+    )
+
+    _slider_guard = [False]
+
+    def _on_slider_change(change):
+        if _slider_guard[0]:
+            return
+        idx = change["new"]
+        if not state.series_datasets or idx >= len(state.series_datasets):
+            return
+
+        state.series_index = idx
+        ds, png = state.series_datasets[idx], state.series_png_cache[idx]
+        state.current_ds = ds
+        state.current_png_bytes = png
+        state.current_file_name = f"{state.series_dir_name} [{idx + 1}/{len(state.series_datasets)}]"
+
+        image_widget.value = png
+        series_info_label.value = (
+            f"<div style='font-size:12px;color:#6c757d;padding:4px 0;'>"
+            f"Slice {idx + 1} / {len(state.series_datasets)}</div>"
+        )
+
+        meta_rows = extract_metadata(ds)
+        if meta_rows:
+            metadata_html.value = _metadata_table(meta_rows)
+
+    slice_slider.observe(_on_slider_change, names="value")
+
     viewer_panel = widgets.VBox(
         [
             image_label,
             image_placeholder,
             image_widget,
+            series_info_label,
+            slice_slider,
         ],
         layout=widgets.Layout(
             flex="1.2", padding="0 16px 0 0",
@@ -87,4 +128,6 @@ def build_viewer(state):
         "report_display": report_display,
         "metadata_html": metadata_html,
         "metadata_table": _metadata_table,
+        "slice_slider": slice_slider,
+        "series_info_label": series_info_label,
     }

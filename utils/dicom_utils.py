@@ -89,6 +89,49 @@ def dicom_to_png_bytes(ds):
     return buf.getvalue()
 
 
+def load_series(directory_path):
+    """Load all valid DICOM files in a directory as a sorted series.
+
+    Returns list of (dataset, png_bytes) tuples sorted by InstanceNumber,
+    SliceLocation, or filename as fallback.  Returns [] if <1 valid DICOM.
+    """
+    from pathlib import Path
+
+    directory_path = Path(directory_path)
+    candidates = [p for p in directory_path.iterdir() if is_dicom_candidate(p)]
+
+    loaded = []
+    for p in candidates:
+        ds = read_dicom(p)
+        if ds is None:
+            continue
+        try:
+            _ = ds.pixel_array
+            png = dicom_to_png_bytes(ds)
+        except Exception:
+            continue
+        loaded.append((ds, png, p.name))
+
+    def _sort_key(item):
+        ds, _png, fname = item
+        inst = getattr(ds, "InstanceNumber", None)
+        if inst is not None:
+            try:
+                return (0, int(inst), fname)
+            except (TypeError, ValueError):
+                pass
+        sloc = getattr(ds, "SliceLocation", None)
+        if sloc is not None:
+            try:
+                return (1, float(sloc), fname)
+            except (TypeError, ValueError):
+                pass
+        return (2, 0, fname)
+
+    loaded.sort(key=_sort_key)
+    return [(ds, png) for ds, png, _fname in loaded]
+
+
 def extract_metadata(ds):
     """Pull a curated set of DICOM tags for display."""
     tags = [

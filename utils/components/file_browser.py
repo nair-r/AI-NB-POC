@@ -12,6 +12,7 @@ from utils.dicom_utils import (
     dicom_to_png_bytes,
     extract_metadata,
     is_dicom_candidate,
+    load_series,
     read_dicom,
 )
 
@@ -35,7 +36,8 @@ def _error_card(msg):
 
 
 def _build_browser(title, default_path, file_filter, file_icon, on_file_click,
-                   on_clear=None, rows=15):
+                   on_clear=None, rows=15, extra_controls=None,
+                   on_dir_change=None):
     """Build a generic file browser panel.
 
     Args:
@@ -48,6 +50,9 @@ def _build_browser(title, default_path, file_filter, file_icon, on_file_click,
             or *None* on success.
         on_clear: optional callable() invoked when the user clicks "Clear".
         rows: Number of visible rows in the Select widget.
+        extra_controls: optional list of widgets appended to the controls HBox.
+        on_dir_change: optional callback(Path) fired when the browsed directory
+            changes.
 
     Returns:
         VBox widget for the browser panel.
@@ -132,6 +137,8 @@ def _build_browser(title, default_path, file_filter, file_icon, on_file_click,
         status.value = ""
         _current_dir[0] = p
         _list_directory(p)
+        if on_dir_change:
+            on_dir_change(p)
 
     def _on_up(_btn=None):
         if _current_dir[0] is None:
@@ -141,6 +148,8 @@ def _build_browser(title, default_path, file_filter, file_icon, on_file_click,
             _current_dir[0] = parent
             root_text.value = str(parent)
             _list_directory(parent)
+            if on_dir_change:
+                on_dir_change(parent)
 
     def _on_select(change):
         if _refreshing[0]:
@@ -163,6 +172,8 @@ def _build_browser(title, default_path, file_filter, file_icon, on_file_click,
             _current_dir[0] = target
             root_text.value = str(target)
             _list_directory(target)
+            if on_dir_change:
+                on_dir_change(target)
         elif file_filter(target):
             error = on_file_click(target)
             if error:
@@ -188,6 +199,10 @@ def _build_browser(title, default_path, file_filter, file_icon, on_file_click,
     # Auto-browse on startup
     _on_go()
 
+    controls_children = [root_text, up_btn, go_btn, clear_btn]
+    if extra_controls:
+        controls_children.extend(extra_controls)
+
     panel = widgets.VBox(
         [
             widgets.HTML(
@@ -195,7 +210,7 @@ def _build_browser(title, default_path, file_filter, file_icon, on_file_click,
                 f"padding:0 0 4px;'>{title}</div>"
             ),
             widgets.HBox(
-                [root_text, up_btn, go_btn, clear_btn],
+                controls_children,
                 layout=widgets.Layout(width="100%"),
             ),
             breadcrumb,
@@ -225,8 +240,21 @@ def build_image_browser(state, viewer):
     metadata_html = viewer["metadata_html"]
     metadata_table = viewer["metadata_table"]
     info_panel = viewer["info_panel"]
+    slice_slider = viewer["slice_slider"]
+    series_info_label = viewer["series_info_label"]
+
+    def _clear_series_state():
+        """Reset all series-related state and hide series UI."""
+        state.series_datasets = []
+        state.series_png_cache = []
+        state.series_index = 0
+        state.series_dir_name = ""
+        slice_slider.layout.display = "none"
+        series_info_label.layout.display = "none"
 
     def _on_dicom_selected(file_path):
+        _clear_series_state()
+
         ds = read_dicom(file_path)
         if ds is None:
             return "Could not read DICOM file."
@@ -265,6 +293,7 @@ def build_image_browser(state, viewer):
         return None
 
     def _on_image_clear():
+        _clear_series_state()
         state.current_ds = None
         state.current_png_bytes = None
         state.current_file_name = ""
@@ -274,6 +303,90 @@ def build_image_browser(state, viewer):
         metadata_html.value = ""
         info_panel.layout.display = "none"
 
+    # -- Open Series button and wiring --
+
+    open_series_btn = widgets.Button(
+        description="Series",
+        icon="layer-group",
+        button_style="warning",
+        disabled=True,
+        tooltip="Load all DICOMs in this directory as a series",
+        layout=widgets.Layout(width="80px", height="30px"),
+    )
+
+    _series_dir = [None]
+
+    def _on_dir_change(directory):
+        _series_dir[0] = directory
+        try:
+            count = sum(1 for p in directory.iterdir()
+                        if is_dicom_candidate(p))
+        except Exception:
+            count = 0
+        open_series_btn.disabled = count < 2
+
+    def _on_open_series(_btn):
+        if _series_dir[0] is None:
+            return
+
+        # Loading state
+        open_series_btn.description = "Loading…"
+        open_series_btn.disabled = True
+
+        pairs = load_series(_series_dir[0])
+
+        if not pairs:
+            open_series_btn.description = "Series"
+            open_series_btn.disabled = False
+            return
+
+        datasets = [ds for ds, _png in pairs]
+        png_cache = [png for _ds, png in pairs]
+
+        state.series_datasets = datasets
+        state.series_png_cache = png_cache
+        state.series_index = 0
+        state.series_dir_name = _series_dir[0].name
+
+        # Set initial current slice
+        state.current_ds = datasets[0]
+        state.current_png_bytes = png_cache[0]
+        state.current_file_name = f"{_series_dir[0].name} [1/{len(datasets)}]"
+
+        # Show image, hide placeholder
+        image_widget.value = png_cache[0]
+        image_widget.layout.display = ""
+        image_placeholder.layout.display = "none"
+        image_label.value = (
+            f"<div style='font-size:13px;color:#495057;padding:0 0 8px;'>"
+            f"&#x1F52C; <b>{_series_dir[0].name}</b>"
+            f" &mdash; {len(datasets)} slices</div>"
+        )
+
+        # Configure slider
+        slice_slider.max = len(datasets) - 1
+        slice_slider.value = 0
+        slice_slider.layout.display = ""
+
+        # Series info label
+        series_info_label.value = (
+            f"<div style='font-size:12px;color:#6c757d;padding:4px 0;'>"
+            f"Slice 1 / {len(datasets)}</div>"
+        )
+        series_info_label.layout.display = ""
+
+        # Metadata from first slice
+        meta_rows = extract_metadata(datasets[0])
+        if meta_rows:
+            metadata_html.value = metadata_table(meta_rows)
+            info_panel.layout.display = ""
+
+        # Restore button
+        open_series_btn.description = "Series"
+        open_series_btn.disabled = False
+
+    open_series_btn.on_click(_on_open_series)
+
     return _build_browser(
         title="&#x1F52C; Image Files",
         default_path="/data",
@@ -281,6 +394,8 @@ def build_image_browser(state, viewer):
         file_icon="\U0001F52C",
         on_file_click=_on_dicom_selected,
         on_clear=_on_image_clear,
+        extra_controls=[open_series_btn],
+        on_dir_change=_on_dir_change,
     )
 
 

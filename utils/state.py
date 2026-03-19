@@ -14,3 +14,9 @@ class AppState(traitlets.HasTraits):
     report_text = traitlets.Unicode(default_value="")
     report_file_name = traitlets.Unicode(default_value="")
     sm_client = traitlets.Any(default_value=None)
+
+    # Series viewing state
+    series_datasets = traitlets.List(default_value=[])
+    series_png_cache = traitlets.List(default_value=[])
+    series_index = traitlets.Int(default_value=0)
+    series_dir_name = traitlets.Unicode(default_value="")
