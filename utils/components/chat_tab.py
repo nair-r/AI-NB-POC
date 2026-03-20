@@ -6,20 +6,18 @@ import base64
 import json
 import re
 import time
-from uuid import uuid4
 
 import botocore
 import ipywidgets as widgets
 
 from utils.config import (
-    ASYNC_INFERENCE,
-    ASYNC_INPUT_PREFIX,
+    BACKGROUND_POLL_INTERVAL,
+    BACKGROUND_POLL_TIMEOUT,
     CONTENT_TYPE,
     ENDPOINT_NAME,
     VOLUME_S3_BUCKET,
     VOLUME_S3_PREFIX,
 )
-from utils.s3_utils import parse_s3_uri
 from utils.volume_utils import dicom_series_to_nifti_bytes, upload_volume_to_s3
 
 # Model registry: display name -> model ID sent in the payload
@@ -139,53 +137,6 @@ def _format_payload_summary(payload, has_report_context, turn):
 
     lines.append("</div>")
     return "".join(lines)
-
-
-def _invoke_async(payload_dict, s3_client, sm_client, spinner):
-    """Upload payload to S3, invoke async endpoint, poll for result."""
-    input_key = f"{ASYNC_INPUT_PREFIX}{uuid4()}.json"
-    s3_client.put_object(
-        Bucket=VOLUME_S3_BUCKET,
-        Key=input_key,
-        Body=json.dumps(payload_dict),
-    )
-    input_location = f"s3://{VOLUME_S3_BUCKET}/{input_key}"
-
-    resp = sm_client.invoke_endpoint_async(
-        EndpointName=ENDPOINT_NAME,
-        InputLocation=input_location,
-        ContentType=CONTENT_TYPE,
-    )
-    output_location = resp["OutputLocation"]
-    output_bucket, output_key = parse_s3_uri(output_location)
-
-    elapsed = 0
-    while elapsed < 300:  # 5 min max
-        try:
-            obj = s3_client.get_object(Bucket=output_bucket, Key=output_key)
-            return json.loads(obj["Body"].read())
-        except s3_client.exceptions.NoSuchKey:
-            time.sleep(3)
-            elapsed += 3
-            spinner.value = (
-                '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;">'
-                '<div style="width:18px;height:18px;border:2px solid #e0e0e0;'
-                'border-top-color:#1976d2;border-radius:50%;'
-                'animation:spin 0.8s linear infinite;"></div>'
-                f'<span style="font-size:13px;color:#6c757d;">'
-                f'Analyzing... {elapsed}s</span></div>'
-            )
-
-    failure_location = resp.get("FailureLocation")
-    if failure_location:
-        try:
-            fb, fk = parse_s3_uri(failure_location)
-            fail_obj = s3_client.get_object(Bucket=fb, Key=fk)
-            fail_body = fail_obj["Body"].read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"Inference failed: {fail_body}")
-        except (s3_client.exceptions.NoSuchKey, ValueError):
-            pass
-    raise TimeoutError("Inference timed out after 5 minutes")
 
 
 # ---------------------------------------------------------------------------
@@ -491,15 +442,12 @@ def build_chat(state):
 
         t0 = time.time()
         try:
-            if ASYNC_INFERENCE:
-                result = _invoke_async(payload, state.s3_client, state.sm_client, spinner)
-            else:
-                resp = state.sm_client.invoke_endpoint(
-                    EndpointName=ENDPOINT_NAME,
-                    ContentType=CONTENT_TYPE,
-                    Body=json.dumps(payload),
-                )
-                result = json.loads(resp["Body"].read().decode("utf-8"))
+            resp = state.sm_client.invoke_endpoint(
+                EndpointName=ENDPOINT_NAME,
+                ContentType=CONTENT_TYPE,
+                Body=json.dumps(payload),
+            )
+            result = json.loads(resp["Body"].read().decode("utf-8"))
 
             elapsed = time.time() - t0
             generated = result.get("generated_text", "(No text in response)")
@@ -615,6 +563,7 @@ def build_chat(state):
                 "model": "merlin",
                 "mode": mode_id,
                 "volume_s3_uri": volume_uri,
+                "background": True,
             }
             if query_texts:
                 payload["query_texts"] = query_texts
@@ -623,7 +572,47 @@ def build_chat(state):
                 payload, has_report_context=False, turn=0,
             )
 
-            result = _invoke_async(payload, state.s3_client, state.sm_client, spinner)
+            # Submit background job
+            resp = state.sm_client.invoke_endpoint(
+                EndpointName=ENDPOINT_NAME,
+                ContentType=CONTENT_TYPE,
+                Body=json.dumps(payload),
+            )
+            submit_result = json.loads(resp["Body"].read().decode("utf-8"))
+            job_id = submit_result["job_id"]
+
+            # Poll until completed
+            elapsed_poll = 0
+            result = None
+            while elapsed_poll < BACKGROUND_POLL_TIMEOUT:
+                time.sleep(BACKGROUND_POLL_INTERVAL)
+                elapsed_poll += BACKGROUND_POLL_INTERVAL
+                spinner.value = (
+                    '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;">'
+                    '<div style="width:18px;height:18px;border:2px solid #e0e0e0;'
+                    'border-top-color:#1976d2;border-radius:50%;'
+                    'animation:spin 0.8s linear infinite;"></div>'
+                    f'<span style="font-size:13px;color:#6c757d;">'
+                    f'Analyzing... {elapsed_poll}s</span></div>'
+                )
+
+                poll_resp = state.sm_client.invoke_endpoint(
+                    EndpointName=ENDPOINT_NAME,
+                    ContentType=CONTENT_TYPE,
+                    Body=json.dumps({"model": "merlin", "poll_job_id": job_id}),
+                )
+                poll_result = json.loads(poll_resp["Body"].read().decode("utf-8"))
+
+                if poll_result["status"] == "completed":
+                    result = poll_result["result"]
+                    break
+                elif poll_result["status"] == "failed":
+                    raise RuntimeError(poll_result.get("error", "Inference failed"))
+                elif poll_result["status"] == "not_found":
+                    raise RuntimeError("Job lost — endpoint may have restarted")
+            else:
+                raise TimeoutError("Inference timed out after 5 minutes")
+
             elapsed = time.time() - t0
 
             timing = (
@@ -662,17 +651,15 @@ def build_chat(state):
         if state.session_id and state.sm_client is not None:
             try:
                 payload = {
+                    "model": "medgemma",
                     "clear_session": True,
                     "session_id": state.session_id,
                 }
-                if ASYNC_INFERENCE and state.s3_client is not None:
-                    _invoke_async(payload, state.s3_client, state.sm_client, spinner)
-                else:
-                    state.sm_client.invoke_endpoint(
-                        EndpointName=ENDPOINT_NAME,
-                        ContentType=CONTENT_TYPE,
-                        Body=json.dumps(payload),
-                    )
+                state.sm_client.invoke_endpoint(
+                    EndpointName=ENDPOINT_NAME,
+                    ContentType=CONTENT_TYPE,
+                    Body=json.dumps(payload),
+                )
             except Exception:
                 pass  # best-effort server cleanup
         state.session_id = ""

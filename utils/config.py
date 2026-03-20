@@ -5,11 +5,13 @@ ENDPOINT_NAME = "medgemma-endpoint"
 REGION = "us-east-1"
 CONTENT_TYPE = "application/json"
 
-# S3 bucket for volume uploads and async inference I/O
+# S3 bucket for volume uploads
 VOLUME_S3_BUCKET = "ai-poc-sagemaker-endpoint-706262411476"
 VOLUME_S3_PREFIX = "volumes/"
-ASYNC_INPUT_PREFIX = "async-input/"
-ASYNC_INFERENCE = True  # Endpoint deployed with --async-inference
+
+# Background job polling (Merlin submit+poll pattern)
+BACKGROUND_POLL_INTERVAL = 5    # seconds between poll requests
+BACKGROUND_POLL_TIMEOUT = 300   # max seconds to wait for result
 
 # AWS credentials are read from environment variables.
 # Set these before launching Voilà:

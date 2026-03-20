@@ -10,11 +10,31 @@ from pydicom.pixel_data_handlers.util import apply_modality_lut, apply_voi_lut
 from PIL import Image
 
 
+_KNOWN_NON_DICOM = {
+    ".txt", ".csv", ".json", ".xml", ".html", ".log", ".md",
+    ".yaml", ".yml", ".cfg", ".ini", ".conf",
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif", ".svg",
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+    ".py", ".js", ".ts", ".java", ".c", ".cpp", ".h", ".rs", ".go",
+    ".zip", ".tar", ".gz", ".bz2", ".rar", ".7z", ".xz",
+    ".exe", ".dll", ".so", ".dylib", ".bin",
+    ".mp4", ".avi", ".mov", ".mkv", ".mp3", ".wav", ".flac",
+    ".nii", ".nrrd", ".mha", ".mhd", ".stl", ".obj", ".vtk",
+    ".sh", ".bat", ".ps1",
+}
+
+
 def is_dicom_candidate(p):
-    """Check if a path is likely a DICOM file."""
+    """Check if a path is likely a DICOM file.
+
+    Uses an exclusion-based approach: any file that doesn't have a known
+    non-DICOM extension is treated as a candidate.  This catches numeric
+    extensions (.001, .1), Siemens .ima, UID-fragment names, and
+    extension-less files common in PACS exports.
+    """
     if p.is_dir():
         return False
-    return p.suffix.lower() in {".dcm", ".dicom"} or p.suffix == ""
+    return p.suffix.lower() not in _KNOWN_NON_DICOM
 
 
 def read_dicom(path):
