@@ -20,3 +20,8 @@ class AppState(traitlets.HasTraits):
     series_png_cache = traitlets.List(default_value=[])
     series_index = traitlets.Int(default_value=0)
     series_dir_name = traitlets.Unicode(default_value="")
+
+    # Multi-turn conversation state
+    session_id = traitlets.Unicode(default_value="")
+    chat_history = traitlets.List(default_value=[])  # [{"role": "user"|"assistant", "content": "..."}]
+    current_turn = traitlets.Int(default_value=0)
