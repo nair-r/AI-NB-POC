@@ -19,9 +19,9 @@ def build_app_bar(state):
         "<div style='background:linear-gradient(135deg,#1565c0,#0d47a1);"
         "color:white;padding:14px 24px;'>"
         "<div style='font-size:18px;font-weight:700;letter-spacing:-0.3px;'>"
-        "&#x1F3E5; MedGemma Inference Dashboard</div>"
+        "&#x1F3E5; Medical AI Inference Dashboard</div>"
         "<div style='font-size:11px;opacity:0.8;margin-top:2px;'>"
-        "Medical image analysis powered by MedGemma on SageMaker</div></div>"
+        "Medical image analysis powered by MedGemma &amp; Merlin on SageMaker</div></div>"
     ))
 
     status_bar = widgets.HTML(value="")
@@ -75,9 +75,10 @@ def build_app_bar(state):
     cred_section.add_class("medgemma-cred")
 
     # Try env vars first
-    client, error = try_init_from_env()
-    if client is not None:
-        state.sm_client = client
+    sm_client, s3_client, error = try_init_from_env()
+    if sm_client is not None:
+        state.sm_client = sm_client
+        state.s3_client = s3_client
         status_bar.value = (
             "<div style='color:#2e7d32;font-size:12px;padding:6px 0;'>"
             f"&#10003; Connected &mdash; Region: <b>{REGION}</b>, "
@@ -91,12 +92,13 @@ def build_app_bar(state):
         )
 
     def _on_connect(_btn):
-        client, error = try_init_client(
+        sm_client, s3_client, error = try_init_client(
             access_key_input.value.strip(),
             secret_key_input.value.strip(),
         )
-        if client is not None:
-            state.sm_client = client
+        if sm_client is not None:
+            state.sm_client = sm_client
+            state.s3_client = s3_client
             status_bar.value = (
                 "<div style='color:#2e7d32;font-size:12px;padding:6px 0;'>"
                 f"&#10003; Connected &mdash; Region: <b>{REGION}</b>, "
