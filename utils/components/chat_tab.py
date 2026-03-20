@@ -61,13 +61,13 @@ def _format_payload_summary(payload, has_report_context):
     text_len = len(payload.get("text", ""))
     img_b64 = payload.get("image", "")
     img_kb = len(img_b64) * 3 / 4 / 1024  # approx decoded size
-    model_id = payload.get("model_id", "unknown")
+    model_id = payload.get("model", "unknown")
     report_flag = "Yes (prepended)" if has_report_context else "No"
     return (
         "<div style='background:#f0f4f8;border:1px solid #dee2e6;border-radius:6px;"
         "padding:10px 14px;margin:4px 0 8px;font-size:12px;font-family:monospace;'>"
         "<div style='font-weight:700;margin-bottom:6px;color:#495057;'>Payload Summary</div>"
-        f"<div><b>model_id</b> &nbsp; {model_id}</div>"
+        f"<div><b>model</b> &nbsp; {model_id}</div>"
         f"<div><b>text</b> &nbsp; String &mdash; {text_len:,} chars &nbsp;|&nbsp; "
         f"Report context: {report_flag}</div>"
         f"<div><b>image</b> &nbsp; Base64 PNG &mdash; ~{img_kb:,.1f} KB (encoded)</div>"
@@ -154,7 +154,7 @@ def build_chat(state):
         payload = {
             "text": full_prompt,
             "image": base64.b64encode(state.current_png_bytes).decode("utf-8"),
-            "model_id": model_id,
+            "model": model_id,
         }
         payload_display.value = _format_payload_summary(
             payload, has_report_context=bool(state.report_text)
