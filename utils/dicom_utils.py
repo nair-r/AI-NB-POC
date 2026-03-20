@@ -6,15 +6,8 @@ import io
 
 import numpy as np
 import pydicom
-from pydicom.pixel_data_handlers.util import apply_voi_lut
+from pydicom.pixel_data_handlers.util import apply_modality_lut, apply_voi_lut
 from PIL import Image
-
-# Modality-specific default windows: (center, width)
-_DEFAULT_WINDOWS = {
-    "CT": (40.0, 400.0),      # soft-tissue
-    "CR": (2048.0, 4096.0),   # 12-bit X-ray
-    "DX": (2048.0, 4096.0),   # digital X-ray
-}
 
 
 def is_dicom_candidate(p):
@@ -32,59 +25,16 @@ def read_dicom(path):
         return None
 
 
-def _dynamic_window(pixels):
-    """Compute a window from pixel statistics (for MR / unknown)."""
-    mean, std = float(np.mean(pixels)), float(np.std(pixels))
-    return mean, max(std * 4.0, 1.0)
-
-
-def _has_voi_lut_sequence(ds):
-    """Return True if ds has a non-empty VOILUTSequence (non-linear LUT)."""
-    seq = getattr(ds, "VOILUTSequence", None)
-    return seq is not None and len(seq) > 0
-
-
-def _percentile_normalize(arr, lo_pct=1.0, hi_pct=99.0):
-    """Normalize to [0,1] using percentile clipping (outlier-robust)."""
-    lo, hi = np.percentile(arr, [lo_pct, hi_pct])
-    if hi - lo < 1e-6:
-        lo, hi = float(arr.min()), float(arr.max())
-    if hi - lo < 1e-6:
-        return np.zeros_like(arr, dtype=np.float64)
-    return np.clip((arr - lo) / (hi - lo), 0.0, 1.0)
-
-
 def apply_windowing(ds):
-    """Apply VOI LUT or manual windowing, return float64 array in [0, 1]."""
-    pixels = ds.pixel_array.astype(np.float64)
-
-    # Path A: Non-linear VOI LUT sequence (rare — sigmoid/table LUT)
-    if _has_voi_lut_sequence(ds):
-        try:
-            windowed = apply_voi_lut(pixels, ds).astype(np.float64)
-            return _percentile_normalize(windowed)
-        except Exception:
-            pass
-
-    # Path B: Linear window/level (common case)
-    modality = str(getattr(ds, "Modality", ""))
-    wc = getattr(ds, "WindowCenter", None)
-    ww = getattr(ds, "WindowWidth", None)
-
-    if wc is not None and ww is not None:
-        if hasattr(wc, "__iter__") and not isinstance(wc, str):
-            wc, ww = float(wc[0]), float(ww[0])
-        else:
-            wc, ww = float(wc), float(ww)
-    elif modality in _DEFAULT_WINDOWS:
-        wc, ww = _DEFAULT_WINDOWS[modality]
-    else:
-        wc, ww = _dynamic_window(pixels)
-
-    lower = wc - ww / 2.0
-    upper = wc + ww / 2.0
-    clipped = np.clip(pixels, lower, upper)
-    return (clipped - lower) / max(upper - lower, 1e-6)
+    """Apply modality + VOI LUTs via pydicom, return float64 array in [0, 1]."""
+    pixels = ds.pixel_array
+    pixels = apply_modality_lut(pixels, ds)
+    pixels = apply_voi_lut(pixels, ds)
+    pixels = pixels.astype(np.float64)
+    lo, hi = float(pixels.min()), float(pixels.max())
+    if hi - lo < 1e-6:
+        return np.zeros_like(pixels, dtype=np.float64)
+    return (pixels - lo) / (hi - lo)
 
 
 def dicom_to_pil(ds):
