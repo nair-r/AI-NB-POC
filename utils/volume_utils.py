@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from uuid import uuid4
+import hashlib
 
 import numpy as np
 
@@ -68,18 +68,49 @@ def _build_affine(datasets: list) -> np.ndarray:
     return affine
 
 
-def upload_volume_to_s3(s3_client, nifti_bytes: bytes, bucket: str, prefix: str) -> str:
+def series_fingerprint(datasets: list) -> str:
+    """Compute a deterministic fingerprint for a DICOM series.
+
+    Uses **sorted SOPInstanceUIDs** from every slice so the hash is
+    identical regardless of file-load order or kernel restart. Each
+    DICOM file has a globally unique SOPInstanceUID that never changes.
+    """
+    if not datasets:
+        return hashlib.sha256(b"empty").hexdigest()[:16]
+
+    sop_uids = sorted(str(getattr(ds, "SOPInstanceUID", "")) for ds in datasets)
+    raw = "|".join(sop_uids)
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def volume_exists_in_s3(s3_client, bucket: str, key: str) -> bool:
+    """Check whether an S3 object exists (HEAD request)."""
+    try:
+        s3_client.head_object(Bucket=bucket, Key=key)
+        return True
+    except Exception:
+        return False
+
+
+def upload_volume_to_s3(
+    s3_client, nifti_bytes: bytes, bucket: str, prefix: str, fingerprint: str | None = None,
+) -> str:
     """Upload NIfTI bytes to S3 and return the s3:// URI.
+
+    If *fingerprint* is provided, uses it as a deterministic key so the same
+    series always lands at the same path (enabling cache hits).
 
     Args:
         s3_client: boto3 S3 client.
         nifti_bytes: Gzipped NIfTI file content.
         bucket: S3 bucket name.
         prefix: Key prefix (e.g. "volumes/").
+        fingerprint: Optional deterministic key fragment.
 
     Returns:
         Full S3 URI, e.g. "s3://bucket/volumes/abc123.nii.gz".
     """
-    key = f"{prefix}{uuid4()}.nii.gz"
+    name = fingerprint if fingerprint else hashlib.sha256(nifti_bytes).hexdigest()[:16]
+    key = f"{prefix}{name}.nii.gz"
     s3_client.put_object(Bucket=bucket, Key=key, Body=nifti_bytes)
     return f"s3://{bucket}/{key}"

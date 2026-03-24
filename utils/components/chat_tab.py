@@ -18,7 +18,12 @@ from utils.config import (
     VOLUME_S3_BUCKET,
     VOLUME_S3_PREFIX,
 )
-from utils.volume_utils import dicom_series_to_nifti_bytes, upload_volume_to_s3
+from utils.volume_utils import (
+    dicom_series_to_nifti_bytes,
+    series_fingerprint,
+    upload_volume_to_s3,
+    volume_exists_in_s3,
+)
 
 # Model registry: display name -> model ID sent in the payload
 _MODELS = {
@@ -251,17 +256,34 @@ def _render_retrieval(result):
 
 def _render_prediction(result):
     risk = result.get("risk_scores", {})
-    rows = "".join(
-        f"<tr><td style='{_td_style()}'>{k}</td>"
-        f"<td style='{_td_style()};text-align:right;'>{v}</td></tr>"
-        for k, v in (risk.items() if isinstance(risk, dict) else [])
-    )
+    if isinstance(risk, dict):
+        items = risk.items()
+    elif isinstance(risk, list):
+        items = [(f"Risk {i+1}", v) for i, v in enumerate(risk)]
+    else:
+        items = []
+    rows = ""
+    for name, score in items:
+        score_f = float(score)
+        pct = int(score_f * 100)
+        bar = (
+            f"<div style='background:#e0e0e0;border-radius:4px;height:16px;width:100%;'>"
+            f"<div style='background:#ef6c00;border-radius:4px;height:16px;"
+            f"width:{pct}%;'></div></div>"
+        )
+        rows += (
+            f"<tr><td style='{_td_style()}'>{name}</td>"
+            f"<td style='{_td_style()};width:50%;'>{bar}</td>"
+            f"<td style='{_td_style()};text-align:right;'>{score_f:.4f}</td></tr>"
+        )
     return (
         "<div style='padding:8px 0;'>"
-        "<div style='font-weight:600;color:#1565c0;margin-bottom:8px;'>Prediction</div>"
+        "<div style='font-weight:600;color:#1565c0;margin-bottom:8px;'>"
+        "5-Year Disease Prediction</div>"
         f"<table style='{_table_style()}'>"
         f"<tr><th style='{_th_style()}'>Risk Category</th>"
-        f"<th style='{_th_style()}'>Score</th></tr>"
+        f"<th style='{_th_style()}'>Score</th>"
+        f"<th style='{_th_style()}'>Value</th></tr>"
         f"{rows}</table></div>"
     )
 
@@ -535,17 +557,12 @@ def build_chat(state):
 
         t0 = time.time()
         try:
-            # Convert series to NIfTI and upload to S3
-            spinner.value = (
-                '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;">'
-                '<div style="width:18px;height:18px;border:2px solid #e0e0e0;'
-                'border-top-color:#1976d2;border-radius:50%;'
-                'animation:spin 0.8s linear infinite;"></div>'
-                '<span style="font-size:13px;color:#6c757d;">'
-                'Converting DICOM to NIfTI...</span></div>'
-            )
+            # Check if this series volume already exists in S3 — the
+            # fingerprint is derived purely from DICOM metadata so it
+            # survives kernel restarts and endpoint redeployments.
             datasets = list(state.series_datasets)
-            nifti_bytes = dicom_series_to_nifti_bytes(datasets)
+            s3_key = f"{VOLUME_S3_PREFIX}test.nii.gz"
+            volume_uri = f"s3://{VOLUME_S3_BUCKET}/{s3_key}"
 
             spinner.value = (
                 '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;">'
@@ -553,11 +570,38 @@ def build_chat(state):
                 'border-top-color:#1976d2;border-radius:50%;'
                 'animation:spin 0.8s linear infinite;"></div>'
                 '<span style="font-size:13px;color:#6c757d;">'
-                'Uploading volume to S3...</span></div>'
+                'Checking for cached volume in S3...</span></div>'
             )
-            volume_uri = upload_volume_to_s3(
-                state.s3_client, nifti_bytes, VOLUME_S3_BUCKET, VOLUME_S3_PREFIX
-            )
+
+            if volume_exists_in_s3(state.s3_client, VOLUME_S3_BUCKET, s3_key):
+                spinner.value = (
+                    '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;">'
+                    '<span style="font-size:13px;color:#43a047;">'
+                    'Volume found in S3 — skipping upload</span></div>'
+                )
+            else:
+                spinner.value = (
+                    '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;">'
+                    '<div style="width:18px;height:18px;border:2px solid #e0e0e0;'
+                    'border-top-color:#1976d2;border-radius:50%;'
+                    'animation:spin 0.8s linear infinite;"></div>'
+                    '<span style="font-size:13px;color:#6c757d;">'
+                    'Converting DICOM to NIfTI...</span></div>'
+                )
+                nifti_bytes = dicom_series_to_nifti_bytes(datasets)
+
+                spinner.value = (
+                    '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;">'
+                    '<div style="width:18px;height:18px;border:2px solid #e0e0e0;'
+                    'border-top-color:#1976d2;border-radius:50%;'
+                    'animation:spin 0.8s linear infinite;"></div>'
+                    '<span style="font-size:13px;color:#6c757d;">'
+                    'Uploading volume to S3...</span></div>'
+                )
+                volume_uri = upload_volume_to_s3(
+                    state.s3_client, nifti_bytes, VOLUME_S3_BUCKET, VOLUME_S3_PREFIX,
+                    fingerprint="test",
+                )
 
             payload = {
                 "model": "merlin",

@@ -11,7 +11,7 @@ VOLUME_S3_PREFIX = "volumes/"
 
 # Background job polling (Merlin submit+poll pattern)
 BACKGROUND_POLL_INTERVAL = 5    # seconds between poll requests
-BACKGROUND_POLL_TIMEOUT = 300   # max seconds to wait for result
+BACKGROUND_POLL_TIMEOUT = 900   # max seconds to wait (15 min — first run downloads model weights)
 
 # AWS credentials are read from environment variables.
 # Set these before launching Voilà:
