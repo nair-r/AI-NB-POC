@@ -89,7 +89,14 @@ def build_seg_viewer(state, viewer):
     _overlay_pngs: dict[int, bytes] = {}
     _seg_cache = [None]
     _current_seg_path: list[str | None] = [None]
+    _selected_seg_path: list[str | None] = [None]
 
+    use_mask_btn = widgets.Button(
+        description="Use mask", icon="check", button_style="primary",
+        disabled=True,
+        tooltip="Load the selected segmentation as an overlay",
+        layout=widgets.Layout(width="110px", height="30px"),
+    )
     latest_btn = widgets.Button(
         description="Use latest", icon="clock",
         tooltip=f"Pick the most recent segmentations.dcm under {_SEG_OUTPUT_ROOT}",
@@ -224,8 +231,24 @@ def build_seg_viewer(state, viewer):
             state.seg_file_path = path_str
 
     def _on_seg_file_clicked(file_path):
-        _load_new_seg(str(file_path))
+        _selected_seg_path[0] = str(file_path)
+        use_mask_btn.disabled = False
+        status_html.value = (
+            f"<div style='color:#1565c0;background:#e8f4fd;padding:8px 10px;"
+            f"border-left:3px solid #1976d2;border-radius:4px;font-size:12px;'>"
+            f"Selected: <b>{Path(file_path).name}</b>. "
+            f"Click \"Use mask\" to load.</div>"
+        )
         return None
+
+    def _on_use_mask(_btn):
+        path = _selected_seg_path[0]
+        if not path:
+            status_html.value = _error_card(
+                "Select a SEG file from the browser first."
+            )
+            return
+        _load_new_seg(path)
 
     def _on_latest(_btn):
         latest = _find_latest_seg()
@@ -234,6 +257,8 @@ def build_seg_viewer(state, viewer):
                 f"No segmentations found under {_SEG_OUTPUT_ROOT}."
             )
             return
+        _selected_seg_path[0] = str(latest)
+        use_mask_btn.disabled = False
         _load_new_seg(str(latest))
 
     def _on_clear(_btn):
@@ -241,6 +266,8 @@ def build_seg_viewer(state, viewer):
         _restore_originals()
         _discard_overlay_state()
         _current_seg_path[0] = None
+        _selected_seg_path[0] = None
+        use_mask_btn.disabled = True
         if state.seg_file_path:
             state.seg_file_path = ""
 
@@ -282,9 +309,12 @@ def build_seg_viewer(state, viewer):
         _discard_overlay_state()
         status_html.value = ""
         _current_seg_path[0] = None
+        _selected_seg_path[0] = None
+        use_mask_btn.disabled = True
         if state.seg_file_path:
             state.seg_file_path = ""
 
+    use_mask_btn.on_click(_on_use_mask)
     latest_btn.on_click(_on_latest)
     clear_btn.on_click(_on_clear)
     overlay_toggle.observe(_on_toggle, names="value")
@@ -304,7 +334,7 @@ def build_seg_viewer(state, viewer):
     seg_browser.layout.min_width = "0"
 
     controls_row = widgets.HBox(
-        [latest_btn, clear_btn],
+        [use_mask_btn, latest_btn, clear_btn],
         layout=widgets.Layout(gap="8px", padding="4px 0"),
     )
     toggle_row = widgets.HBox([overlay_toggle])
