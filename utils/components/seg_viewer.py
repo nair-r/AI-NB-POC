@@ -11,15 +11,36 @@ from PIL import Image
 
 from utils.components.file_browser import _build_browser
 from utils.config import LOCAL_DATA_ROOT
-from utils.dicom_utils import composite_overlay, load_dicom_seg
+from utils.dicom_utils import load_dicom_seg
 
 _SEG_OUTPUT_ROOT = str(Path(LOCAL_DATA_ROOT) / "resources" / "output" / "totalseg")
 
 
 def _pil_to_png_bytes(img):
     buf = io.BytesIO()
-    img.save(buf, format="PNG")
+    # compress_level=1 is ~3-5x faster than the default (6) and keeps the
+    # output small enough for in-memory caching.
+    img.save(buf, format="PNG", compress_level=1)
     return buf.getvalue()
+
+
+def _composite_cached(base_rgb, masks, segments, alpha):
+    """Composite masks onto a cached float32 RGB array; return PIL Image.
+
+    `base_rgb` is never mutated — we copy before blending so the cache stays
+    pristine for subsequent rotate/flip/alpha changes.
+    """
+    out = base_rgb.copy()
+    h, w = out.shape[:2]
+    for seg_num, mask in masks.items():
+        if mask.shape != (h, w):
+            mask_pil = Image.fromarray(
+                (mask.astype(np.uint8) * 255), mode="L"
+            ).resize((w, h), Image.NEAREST)
+            mask = np.array(mask_pil) > 127
+        color = np.array(segments[seg_num]["color"], dtype=np.float32)
+        out[mask] = (1.0 - alpha) * out[mask] + alpha * color
+    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), mode="RGB")
 
 
 def _error_card(msg):
@@ -97,6 +118,10 @@ def build_seg_viewer(state, viewer):
     _rotation = [0]  # number of 90° CCW turns
     _flip_h = [False]
     _flip_v = [False]
+    # Caches that survive rotate/flip/alpha re-applies. Cleared on series
+    # change (base arrays) or new SEG file / clear (parsed seg).
+    _parsed_seg_cache: list[dict | None] = [None]
+    _base_arrays_cache: list[list | None] = [None]
 
     use_mask_btn = widgets.Button(
         description="Use mask", icon="check", button_style="primary",
@@ -203,11 +228,16 @@ def build_seg_viewer(state, viewer):
             )
             return
 
-        try:
-            seg = load_dicom_seg(p)
-        except Exception as e:
-            status_html.value = _error_card(f"Could not parse SEG: {e}")
-            return
+        cached_parsed = _parsed_seg_cache[0]
+        if cached_parsed and cached_parsed["path"] == path_str:
+            seg = cached_parsed["seg"]
+        else:
+            try:
+                seg = load_dicom_seg(p)
+            except Exception as e:
+                status_html.value = _error_card(f"Could not parse SEG: {e}")
+                return
+            _parsed_seg_cache[0] = {"path": path_str, "seg": seg}
 
         by_sop = seg["by_source_sop"]
         segments = seg["segments"]
@@ -215,6 +245,19 @@ def build_seg_viewer(state, viewer):
 
         try:
             snapshot = list(state.series_png_cache)
+            # Cache float32 RGB arrays of the pristine base PNGs so repeated
+            # rotate/flip/alpha re-applies skip PNG-decode on every slice.
+            base_arrays = _base_arrays_cache[0]
+            if base_arrays is None or len(base_arrays) != len(snapshot):
+                base_arrays = [
+                    np.array(
+                        Image.open(io.BytesIO(png)).convert("RGB"),
+                        dtype=np.float32,
+                    )
+                    for png in snapshot
+                ]
+                _base_arrays_cache[0] = base_arrays
+
             overlays: dict[int, bytes] = {}
             matched_counts: dict[int, int] = {}
 
@@ -226,11 +269,9 @@ def build_seg_viewer(state, viewer):
                 if not masks:
                     continue
                 masks = _transform_masks(masks)
-                # Composite onto the cached PNG (what the user actually sees)
-                # instead of re-rendering from the DICOM. This guarantees the
-                # overlay is blended on the same pixels shown in the viewer.
-                base = Image.open(io.BytesIO(snapshot[idx]))
-                composited = composite_overlay(base, masks, segments, alpha=alpha)
+                composited = _composite_cached(
+                    base_arrays[idx], masks, segments, alpha
+                )
                 overlays[idx] = _pil_to_png_bytes(composited)
                 for seg_num in masks:
                     matched_counts[seg_num] = matched_counts.get(seg_num, 0) + 1
@@ -306,6 +347,7 @@ def build_seg_viewer(state, viewer):
         status_html.value = ""
         _restore_originals()
         _discard_overlay_state()
+        _parsed_seg_cache[0] = None
         _current_seg_path[0] = None
         _selected_seg_path[0] = None
         use_mask_btn.disabled = True
@@ -367,7 +409,10 @@ def build_seg_viewer(state, viewer):
 
     def _on_series_change(_change):
         # New series PNGs are already in state.series_png_cache; drop our
-        # stale originals without writing them back.
+        # stale originals without writing them back, and invalidate caches
+        # that were tied to the old series.
+        _base_arrays_cache[0] = None
+        _parsed_seg_cache[0] = None
         if _originals[0] is None and _seg_cache[0] is None:
             return
         _discard_overlay_state()
