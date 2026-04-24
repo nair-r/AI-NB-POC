@@ -9,7 +9,7 @@ import time
 import ipywidgets as widgets
 import requests
 
-from utils.config import MODELS
+from utils.config import MODELS, get_model_caps
 from utils.http_client import predict, translate_path
 
 _SPINNER_HTML = (
@@ -150,7 +150,9 @@ def build_chat(state):
 
     def _refresh_slice_inputs(*_):
         n = len(state.series_datasets)
-        if n > 1:
+        caps = get_model_caps(MODELS[model_dropdown.value])
+
+        if n > 1 and caps["supports_series"]:
             slice_range_box.layout.display = ""
             slice_hint.layout.display = ""
             slice_hint.value = (
@@ -162,11 +164,21 @@ def build_chat(state):
                 w.max = n - 1
                 if w.value > n - 1:
                     w.value = n - 1
+        elif n > 1 and not caps["supports_series"]:
+            slice_range_box.layout.display = "none"
+            slice_hint.layout.display = ""
+            slice_hint.value = (
+                f"<div style='font-size:11px;color:#b26a00;padding:2px 0 6px;'>"
+                f"{model_dropdown.value} accepts a single image only. "
+                f"Click an individual DICOM in the file browser to select "
+                f"one slice from this series.</div>"
+            )
         else:
             slice_range_box.layout.display = "none"
             slice_hint.layout.display = "none"
 
     state.observe(_refresh_slice_inputs, names=["series_datasets"])
+    model_dropdown.observe(_refresh_slice_inputs, names="value")
     _refresh_slice_inputs()
 
     def _build_payload():
@@ -174,13 +186,16 @@ def build_chat(state):
         if not prompt:
             return None, "Please enter a prompt."
 
+        model_name = MODELS[model_dropdown.value]
+        caps = get_model_caps(model_name)
+
         payload = {
             "prompt": prompt,
             "max_new_tokens": int(max_new_tokens_input.value),
         }
 
         n_slices = len(state.series_datasets)
-        if n_slices > 1:
+        if n_slices > 1 and caps["supports_series"]:
             if not state.series_dir_path:
                 return None, "Series loaded but series directory path is missing."
             try:
@@ -191,7 +206,18 @@ def build_chat(state):
             end = int(slice_end_input.value)
             if start > end:
                 return None, f"slice_range start ({start}) must be <= end ({end})."
+            count = end - start + 1
+            if count > caps["max_images"]:
+                return None, (
+                    f"slice_range selects {count} slices but "
+                    f"{model_dropdown.value} accepts at most {caps['max_images']}."
+                )
             payload["slice_range"] = [start, end]
+        elif n_slices > 1 and not caps["supports_series"]:
+            return None, (
+                f"{model_dropdown.value} accepts a single image only. "
+                f"Click an individual DICOM in the file browser to pick one slice."
+            )
         elif state.current_file_path:
             try:
                 payload["image_paths"] = [translate_path(state.current_file_path)]
