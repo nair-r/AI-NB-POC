@@ -13,6 +13,7 @@ from utils.components.file_browser import build_image_browser, build_report_brow
 from utils.components.viewer_tab import build_viewer
 from utils.components.chat_tab import build_chat
 from utils.components.segmentation_tab import build_segmentation
+from utils.components.seg_viewer import build_seg_viewer
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -96,12 +97,14 @@ def build_and_display_app():
     viewer = build_viewer(state)
     chat = build_chat(state)
     segmentation = build_segmentation(state)
+    seg_overlay = build_seg_viewer(state, viewer)
     action_tabs = widgets.Tab(
-        children=[chat, segmentation],
+        children=[chat, segmentation, seg_overlay],
         layout=widgets.Layout(flex="1"),
     )
     action_tabs.set_title(0, "Chat")
     action_tabs.set_title(1, "Segmentation")
+    action_tabs.set_title(2, "Overlay")
     header = build_app_bar()
 
     image_browser = build_image_browser(state, viewer)
