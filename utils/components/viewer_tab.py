@@ -53,6 +53,20 @@ def build_viewer(state):
             object_fit="contain",
         ),
     )
+    # Wrapping the Image in a Box gives wheel/key events a reliable DOM target.
+    # Events attached to <img> are inconsistent across JupyterLab versions.
+    image_container = widgets.Box(
+        [image_widget],
+        layout=widgets.Layout(
+            display="flex",
+            justify_content="center",
+            align_items="center",
+            width="100%",
+            min_height="400px",
+            max_height="500px",
+            overflow="hidden",
+        ),
+    )
     image_label = widgets.HTML(value="")
     report_display = widgets.HTML(value="")
     metadata_html = widgets.HTML(value="")
@@ -109,9 +123,19 @@ def build_viewer(state):
     prev_btn.on_click(_on_prev)
     next_btn.on_click(_on_next)
 
-    # Scroll-wheel support via ipyevents on the image widget
-    _wheel_event = Event(source=image_widget, watched_events=["wheel"])
-    _wheel_event.prevent_default_action = True
+    # Scroll-wheel + arrow-key nav via ipyevents on the image container box.
+    # Attaching events to a Box (<div>) is more reliable than attaching to the
+    # Image widget itself (<img>), which swallows wheel events in some browser
+    # / JupyterLab combinations.
+    _wheel_event = Event(
+        source=image_container,
+        watched_events=["wheel"],
+        prevent_default_action=True,
+    )
+    _key_event = Event(
+        source=image_container,
+        watched_events=["keydown"],
+    )
 
     def _on_wheel(event):
         dy = event.get("deltaY", 0)
@@ -120,13 +144,21 @@ def build_viewer(state):
         elif dy < 0:
             _go_to_slice(state.series_index - 1)
 
+    def _on_key(event):
+        key = event.get("key", "")
+        if key in ("ArrowDown", "ArrowRight", "PageDown", "j"):
+            _go_to_slice(state.series_index + 1)
+        elif key in ("ArrowUp", "ArrowLeft", "PageUp", "k"):
+            _go_to_slice(state.series_index - 1)
+
     _wheel_event.on_dom_event(_on_wheel)
+    _key_event.on_dom_event(_on_key)
 
     viewer_panel = widgets.VBox(
         [
             image_label,
             image_placeholder,
-            image_widget,
+            image_container,
             series_nav,
         ],
         layout=widgets.Layout(
@@ -151,6 +183,7 @@ def build_viewer(state):
         "viewer_panel": viewer_panel,
         "info_panel": info_panel,
         "image_widget": image_widget,
+        "image_container": image_container,
         "image_placeholder": image_placeholder,
         "image_label": image_label,
         "report_display": report_display,
@@ -159,4 +192,6 @@ def build_viewer(state):
         "series_nav": series_nav,
         "series_info_label": series_info_label,
         "go_to_slice": _go_to_slice,
+        "_wheel_event": _wheel_event,
+        "_key_event": _key_event,
     }
