@@ -1,20 +1,20 @@
-"""Endpoint and credential configuration for the Medical AI POC."""
+"""Inference endpoint and path-translation configuration for the Medical AI POC."""
 
-# Hardcoded for this POC. A configuration UI is coming soon.
-ENDPOINT_NAME = "ai-poc-endpoint"
-REGION = "us-east-1"
-CONTENT_TYPE = "application/json"
+import os
 
-# S3 bucket for volume uploads
-VOLUME_S3_BUCKET = "ai-poc-sagemaker-endpoint-706262411476"
-VOLUME_S3_PREFIX = "volumes/"
+MODEL_NAME = os.environ.get("MODEL_NAME", "medgemma")
 
-# Background job polling (Merlin submit+poll pattern)
-BACKGROUND_POLL_INTERVAL = 5    # seconds between poll requests
-BACKGROUND_POLL_TIMEOUT = 900   # max seconds to wait (15 min — first run downloads model weights)
+# In-cluster KServe predictor URL. Override with INFERENCE_URL env var.
+INFERENCE_URL = os.environ.get(
+    "INFERENCE_URL",
+    f"http://{MODEL_NAME}-predictor.xnat.svc.cluster.local/v1/models/{MODEL_NAME}:predict",
+)
 
-# AWS credentials are read from environment variables.
-# Set these before launching Voilà:
-#   export AWS_ACCESS_KEY_ID=...
-#   export AWS_SECRET_ACCESS_KEY=...
-#   export AWS_DEFAULT_REGION=us-east-1
+# KServe scale-to-zero cold starts can take several minutes while the model
+# weights mount and vLLM spins up.
+REQUEST_TIMEOUT = int(os.environ.get("REQUEST_TIMEOUT", "900"))
+
+# PVC path translation. The JupyterHub kernel and the inference pod mount the
+# same archive under different prefixes; paths match from AI-POC/ downward.
+LOCAL_DATA_ROOT = os.environ.get("LOCAL_DATA_ROOT", "/data/projects/AI-POC")
+POD_DATA_ROOT = os.environ.get("POD_DATA_ROOT", "/data/xnat/archive/AI-POC")

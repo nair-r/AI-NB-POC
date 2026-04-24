@@ -7,6 +7,7 @@ from pathlib import Path
 
 import ipywidgets as widgets
 
+from utils.config import LOCAL_DATA_ROOT
 from utils.dicom_utils import (
     dicom_to_pil,
     dicom_to_png_bytes,
@@ -253,6 +254,7 @@ def build_image_browser(state, viewer):
         state.series_png_cache = []
         state.series_index = 0
         state.series_dir_name = ""
+        state.series_dir_path = ""
         series_nav.layout.display = "none"
 
     def _on_dicom_selected(file_path):
@@ -275,6 +277,7 @@ def build_image_browser(state, viewer):
         state.current_ds = ds
         state.current_png_bytes = dicom_to_png_bytes(ds)
         state.current_file_name = file_path.name
+        state.current_file_path = str(file_path.resolve())
 
         # Show image, hide placeholder
         image_widget.value = state.current_png_bytes
@@ -300,6 +303,7 @@ def build_image_browser(state, viewer):
         state.current_ds = None
         state.current_png_bytes = None
         state.current_file_name = ""
+        state.current_file_path = ""
         image_widget.layout.display = "none"
         image_placeholder.layout.display = ""
         image_label.value = ""
@@ -350,11 +354,13 @@ def build_image_browser(state, viewer):
         state.series_png_cache = png_cache
         state.series_index = 0
         state.series_dir_name = _series_dir[0].name
+        state.series_dir_path = str(_series_dir[0].resolve())
 
         # Set initial current slice
         state.current_ds = datasets[0]
         state.current_png_bytes = png_cache[0]
         state.current_file_name = f"{_series_dir[0].name} [1/{len(datasets)}]"
+        state.current_file_path = ""
 
         # Show image, hide placeholder
         image_widget.value = png_cache[0]
@@ -389,7 +395,7 @@ def build_image_browser(state, viewer):
 
     return _build_browser(
         title="&#x1F52C; Image Files",
-        default_path="/data",
+        default_path=LOCAL_DATA_ROOT,
         file_filter=is_dicom_candidate,
         file_icon="\U0001F52C",
         on_file_click=_on_dicom_selected,
@@ -413,6 +419,7 @@ def build_report_browser(state, viewer):
         safe = html_mod.escape(content)
         state.report_text = content
         state.report_file_name = file_path.name
+        state.report_file_path = str(file_path.resolve())
 
         report_display.value = (
             f"<div style='border:1px solid #e9ecef;border-radius:6px;"
@@ -430,11 +437,12 @@ def build_report_browser(state, viewer):
     def _on_report_clear():
         state.report_text = ""
         state.report_file_name = ""
+        state.report_file_path = ""
         report_display.value = ""
 
     return _build_browser(
         title="&#x1F4C4; Text Reports",
-        default_path="/data",
+        default_path=LOCAL_DATA_ROOT,
         file_filter=_is_text_file,
         file_icon="\U0001F4C4",
         on_file_click=_on_text_selected,

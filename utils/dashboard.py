@@ -94,7 +94,7 @@ def build_and_display_app():
     state = AppState()
     viewer = build_viewer(state)
     chat = build_chat(state)
-    header, cred_section = build_app_bar(state)
+    header = build_app_bar()
 
     image_browser = build_image_browser(state, viewer)
     report_browser = build_report_browser(state, viewer)
@@ -188,7 +188,7 @@ def build_and_display_app():
 
     css = widgets.HTML(_APP_CSS)
     app = widgets.VBox(
-        [css, header, cred_section, toggle_bar, content],
+        [css, header, toggle_bar, content],
         layout=widgets.Layout(width="100%"),
     )
     app.add_class("medgemma-app")
