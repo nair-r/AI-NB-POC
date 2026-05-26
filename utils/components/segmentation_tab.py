@@ -9,7 +9,16 @@ import requests
 
 from utils.http_client import predict, translate_path, translate_pod_path_to_local
 
-TASKS: dict[str, str] = {"TotalSegmentator": "totalseg"}
+# InferenceService name for the NSCLC tumor segmentation model. Its request
+# payload differs from TotalSegmentator (output_format/threshold vs fast/roi).
+NSCLC_MODEL = "duneai-nsclc"
+
+# Dropdown label -> InferenceService name. The name is substituted into
+# INFERENCE_URL_TEMPLATE by http_client.predict().
+TASKS: dict[str, str] = {
+    "TotalSegmentator": "totalseg",
+    "nsclc_segmentation": NSCLC_MODEL,
+}
 
 _SPINNER_HTML = (
     '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;">'
@@ -32,11 +41,19 @@ def _error_card(msg: str) -> str:
     )
 
 
-def _response_card(result: dict, local_seg_path: str) -> str:
-    rows = [
-        f"<div><b>task</b> &nbsp; {result.get('task')}</div>",
-        f"<div><b>fast</b> &nbsp; {result.get('fast')}</div>",
-    ]
+def _response_card(result: dict, local_seg_path: str | None) -> str:
+    # Show whichever fields the predictor echoed back; TotalSegmentator and
+    # NSCLC return different keys.
+    rows = []
+    if local_seg_path:
+        rows.append(
+            f"<div style='word-break:break-all;'><b>seg_path</b> &nbsp; "
+            f"{local_seg_path}</div>"
+        )
+    for key in ("task", "fast", "output_format", "threshold"):
+        val = result.get(key)
+        if val is not None:
+            rows.append(f"<div><b>{key}</b> &nbsp; {val}</div>")
     roi = result.get("roi_subset")
     if roi:
         rows.append(f"<div><b>roi_subset</b> &nbsp; {', '.join(roi)}</div>")
@@ -45,8 +62,6 @@ def _response_card(result: dict, local_seg_path: str) -> str:
         "padding:12px 14px;font-size:12px;font-family:monospace;line-height:1.6;'>"
         "<div style='font-weight:700;color:#495057;margin-bottom:6px;'>"
         "Segmentation Result</div>"
-        f"<div style='word-break:break-all;'><b>seg_path</b> &nbsp; "
-        f"{local_seg_path}</div>"
         + "".join(rows) +
         "</div>"
     )
@@ -76,6 +91,17 @@ def build_segmentation(state):
         value="",
         placeholder="Optional: liver, heart, aorta",
         description="ROI subset:",
+        style={"description_width": "90px"},
+        layout=widgets.Layout(width="100%"),
+    )
+
+    # NSCLC-only control: tumor probability cutoff sent as `threshold`.
+    threshold_input = widgets.BoundedFloatText(
+        value=0.99,
+        min=0.0,
+        max=1.0,
+        step=0.01,
+        description="Threshold:",
         style={"description_width": "90px"},
         layout=widgets.Layout(width="100%"),
     )
@@ -121,6 +147,16 @@ def build_segmentation(state):
     )
     _refresh_series_label()
 
+    def _apply_task_visibility(*_):
+        """Show only the controls relevant to the selected task."""
+        is_nsclc = TASKS[task_dropdown.value] == NSCLC_MODEL
+        fast_checkbox_bar.layout.display = "none" if is_nsclc else ""
+        roi_input.layout.display = "none" if is_nsclc else ""
+        threshold_input.layout.display = "" if is_nsclc else "none"
+
+    task_dropdown.observe(_apply_task_visibility, names="value")
+    _apply_task_visibility()
+
     def _parse_roi(value: str) -> list[str] | None:
         items = [s.strip() for s in value.split(",") if s.strip()]
         return items or None
@@ -132,7 +168,16 @@ def build_segmentation(state):
             dicom_dir = translate_path(state.series_dir_path)
         except ValueError as e:
             return None, str(e)
-        payload: dict = {"dicom_dir": dicom_dir, "fast": fast_checkbox.value}
+
+        if TASKS[task_dropdown.value] == NSCLC_MODEL:
+            payload: dict = {
+                "dicom_dir": dicom_dir,
+                "output_format": "dicom",
+                "threshold": float(threshold_input.value),
+            }
+            return payload, None
+
+        payload = {"dicom_dir": dicom_dir, "fast": fast_checkbox.value}
         roi = _parse_roi(roi_input.value)
         if roi:
             payload["roi_subset"] = roi
@@ -154,14 +199,18 @@ def build_segmentation(state):
         try:
             result = predict(payload, model_name)
             elapsed = time.time() - t0
-            try:
-                local_seg = translate_pod_path_to_local(result["seg_path"])
-            except ValueError as e:
-                response_area.value = _error_card(
-                    f"Segmentation succeeded but seg_path could not be "
-                    f"translated: {e}"
-                )
-                return
+
+            local_seg = None
+            seg_path = result.get("seg_path")
+            if seg_path:
+                try:
+                    local_seg = translate_pod_path_to_local(seg_path)
+                except ValueError as e:
+                    response_area.value = _error_card(
+                        f"Segmentation succeeded but seg_path could not be "
+                        f"translated: {e}"
+                    )
+                    return
 
             last_local_seg_path["path"] = local_seg
             predictor_elapsed = float(result.get("elapsed_s", 0.0))
@@ -171,7 +220,8 @@ def build_segmentation(state):
                 f"Predictor: {predictor_elapsed:.1f}s</div>"
             )
             response_area.value = _response_card(result, local_seg) + footer
-            load_overlay_button.layout.display = ""
+            # Only offer the overlay when the predictor returned a loadable path.
+            load_overlay_button.layout.display = "" if local_seg else "none"
 
         except requests.Timeout:
             response_area.value = _error_card(
@@ -213,6 +263,7 @@ def build_segmentation(state):
             series_label,
             fast_checkbox_bar,
             roi_input,
+            threshold_input,
             response_area,
             run_button,
             spinner,

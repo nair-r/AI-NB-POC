@@ -38,10 +38,12 @@ def get_model_caps(name: str) -> dict:
     """Return caps for the given InferenceService name, conservatively defaulting."""
     return MODEL_CAPS.get(name, {"max_images": 1, "supports_series": False})
 
-# In-cluster URL template. {model} is substituted with the selected model name.
+# Inference endpoint template. {model} is substituted with the selected model
+# name, e.g. duneai-nsclc ->
+# http://duneai-nsclc-xnat.tap.dev.embarklabs.ai/v1/models/duneai-nsclc:predict
 INFERENCE_URL_TEMPLATE = os.environ.get(
     "INFERENCE_URL_TEMPLATE",
-    "http://{model}-predictor.xnat.svc.cluster.local/v1/models/{model}:predict",
+    "http://{model}-xnat.tap.dev.embarklabs.ai/v1/models/{model}:predict",
 )
 
 # KServe scale-to-zero cold starts can take several minutes while the model
