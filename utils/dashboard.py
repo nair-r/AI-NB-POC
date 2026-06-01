@@ -102,14 +102,33 @@ def build_and_display_app():
         description="Show Image Browser",
         indent=False,
     )
+    metadata_toggle = widgets.Checkbox(
+        value=True,
+        description="Show DICOM Metadata",
+        indent=False,
+    )
 
     def _on_browser_toggle(change):
         image_browser.layout.display = "" if change["new"] else "none"
 
+    def _apply_metadata_visibility():
+        if metadata_toggle.value and viewer["metadata_html"].value:
+            viewer["info_panel"].layout.display = ""
+        else:
+            viewer["info_panel"].layout.display = "none"
+
+    def _on_metadata_toggle(_change):
+        _apply_metadata_visibility()
+
+    def _on_metadata_content_change(_change):
+        _apply_metadata_visibility()
+
     browser_toggle.observe(_on_browser_toggle, names="value")
+    metadata_toggle.observe(_on_metadata_toggle, names="value")
+    viewer["metadata_html"].observe(_on_metadata_content_change, names="value")
 
     toggle_bar = widgets.HBox(
-        [browser_toggle],
+        [browser_toggle, metadata_toggle],
         layout=widgets.Layout(
             padding="8px 16px",
             gap="24px",
@@ -120,9 +139,14 @@ def build_and_display_app():
 
     main_content = widgets.VBox(
         [
+            viewer["viewer_panel"],
             widgets.HBox(
-                [viewer["viewer_panel"], segmentation, masks_panel],
-                layout=widgets.Layout(min_height="450px"),
+                [segmentation, masks_panel],
+                layout=widgets.Layout(
+                    padding="16px 0 0 0",
+                    border_top="1px solid #e9ecef",
+                    margin="16px 0 0 0",
+                ),
             ),
             viewer["info_panel"],
         ],

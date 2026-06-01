@@ -36,13 +36,6 @@ def _error_card(msg):
     )
 
 
-def _info_card(msg):
-    return (
-        f"<div style='color:#1565c0;background:#e8f4fd;padding:8px 10px;"
-        f"border-left:3px solid #1976d2;border-radius:4px;font-size:12px;'>{msg}</div>"
-    )
-
-
 def _muted_card(msg):
     return (
         f"<div style='color:#6c757d;background:#f8f9fa;padding:8px 10px;"
@@ -420,11 +413,7 @@ def build_seg_viewer(state, viewer):
             rows.append(widgets.VBox([entry["row"], entry["segments_box"]]))
 
         mask_list_box.children = rows
-        status_html.value = _info_card(
-            f"Found {len(dcm_files)} mask file"
-            f"{'s' if len(dcm_files) != 1 else ''} in "
-            f"<code>{masks_dir}</code>."
-        )
+        status_html.value = ""
 
     # --- event handlers -----------------------------------------------------
 

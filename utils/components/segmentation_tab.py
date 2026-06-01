@@ -250,7 +250,6 @@ def build_segmentation(state):
             spinner,
         ],
         layout=widgets.Layout(
-            flex="1", padding="0 0 0 16px",
-            border_left="1px solid #e9ecef",
+            flex="1", padding="0 16px 0 0",
         ),
     )

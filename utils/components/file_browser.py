@@ -243,7 +243,6 @@ def build_image_browser(state, viewer):
     image_label = viewer["image_label"]
     metadata_html = viewer["metadata_html"]
     metadata_table = viewer["metadata_table"]
-    info_panel = viewer["info_panel"]
     series_nav = viewer["series_nav"]
     series_info_label = viewer["series_info_label"]
 
@@ -273,7 +272,6 @@ def build_image_browser(state, viewer):
                 f"&#129504; <b>{file_path.name}</b></div>"
             )
             metadata_html.value = ""
-            info_panel.layout.display = "none"
             return None
 
         _clear_series_state()
@@ -306,13 +304,8 @@ def build_image_browser(state, viewer):
             f"&#x1F52C; <b>{file_path.name}</b></div>"
         )
 
-        # Show metadata
         meta_rows = extract_metadata(ds)
-        if meta_rows:
-            metadata_html.value = metadata_table(meta_rows)
-            info_panel.layout.display = ""
-        else:
-            info_panel.layout.display = "none"
+        metadata_html.value = metadata_table(meta_rows) if meta_rows else ""
 
         return None
 
@@ -327,7 +320,6 @@ def build_image_browser(state, viewer):
         image_placeholder.layout.display = ""
         image_label.value = ""
         metadata_html.value = ""
-        info_panel.layout.display = "none"
 
     # -- Open Series button and wiring --
 
@@ -400,11 +392,8 @@ def build_image_browser(state, viewer):
             f"Slice 1 / {len(datasets)}</div>"
         )
 
-        # Metadata from first slice
         meta_rows = extract_metadata(datasets[0])
-        if meta_rows:
-            metadata_html.value = metadata_table(meta_rows)
-            info_panel.layout.display = ""
+        metadata_html.value = metadata_table(meta_rows) if meta_rows else ""
 
         # Restore button
         open_series_btn.description = "Series"
