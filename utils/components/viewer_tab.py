@@ -32,7 +32,7 @@ def _metadata_table(rows):
 
 
 def build_viewer(state):
-    """Build image display, report display, and metadata widgets.
+    """Build image display and metadata widgets.
 
     Returns a dict with keys:
         viewer_panel      - VBox for the main viewer area
@@ -40,7 +40,6 @@ def build_viewer(state):
         image_widget      - Image widget (for cross-component updates)
         image_placeholder - HTML placeholder (hidden when content loaded)
         image_label       - HTML label showing filename
-        report_display    - HTML widget for attached report content
         metadata_html     - HTML widget for metadata table
         metadata_table    - formatter function for metadata rows
     """
@@ -49,7 +48,7 @@ def build_viewer(state):
     image_widget = widgets.Image(
         format="png",
         layout=widgets.Layout(
-            max_width="100%", max_height="500px", display="none",
+            max_width="100%", max_height="80vh", display="none",
             object_fit="contain",
         ),
     )
@@ -62,13 +61,12 @@ def build_viewer(state):
             justify_content="center",
             align_items="center",
             width="100%",
-            min_height="400px",
-            max_height="500px",
+            min_height="600px",
+            max_height="80vh",
             overflow="hidden",
         ),
     )
     image_label = widgets.HTML(value="")
-    report_display = widgets.HTML(value="")
     metadata_html = widgets.HTML(value="")
 
     series_info_label = widgets.HTML(
@@ -152,12 +150,17 @@ def build_viewer(state):
     slice_slider.observe(_on_slider, names="value")
     state.observe(_on_series_datasets_change, names="series_datasets")
 
-    # Scroll-wheel + arrow-key nav via ipyevents on the image container box.
-    # Attaching events to a Box (<div>) is more reliable than attaching to the
-    # Image widget itself (<img>), which swallows wheel events in some browser
-    # / JupyterLab combinations.
-    _wheel_event = Event(
+    # Scroll-wheel + arrow-key nav via ipyevents. Attach to BOTH the Box and
+    # the Image — the Box catches bubbled events in JupyterLab, but Voila and
+    # some browsers route the wheel directly to the <img> and the Box never
+    # sees it. Two sources, same handler.
+    _wheel_box = Event(
         source=image_container,
+        watched_events=["wheel"],
+        prevent_default_action=True,
+    )
+    _wheel_img = Event(
+        source=image_widget,
         watched_events=["wheel"],
         prevent_default_action=True,
     )
@@ -180,7 +183,8 @@ def build_viewer(state):
         elif key in ("ArrowUp", "ArrowLeft", "PageUp", "k"):
             _go_to_slice(state.series_index - 1)
 
-    _wheel_event.on_dom_event(_on_wheel)
+    _wheel_box.on_dom_event(_on_wheel)
+    _wheel_img.on_dom_event(_on_wheel)
     _key_event.on_dom_event(_on_key)
 
     viewer_panel = widgets.VBox(
@@ -191,8 +195,8 @@ def build_viewer(state):
             series_nav,
         ],
         layout=widgets.Layout(
-            flex="1.2", padding="0 16px 0 0",
-            min_height="400px",
+            width="100%",
+            min_height="600px",
         ),
     )
 
@@ -215,12 +219,12 @@ def build_viewer(state):
         "image_container": image_container,
         "image_placeholder": image_placeholder,
         "image_label": image_label,
-        "report_display": report_display,
         "metadata_html": metadata_html,
         "metadata_table": _metadata_table,
         "series_nav": series_nav,
         "series_info_label": series_info_label,
         "go_to_slice": _go_to_slice,
-        "_wheel_event": _wheel_event,
+        "_wheel_box": _wheel_box,
+        "_wheel_img": _wheel_img,
         "_key_event": _key_event,
     }

@@ -1,8 +1,7 @@
-"""Dual file browsers: one for DICOM images, one for text reports."""
+"""File browser for DICOM images and series."""
 
 from __future__ import annotations
 
-import html as html_mod
 from pathlib import Path
 
 import ipywidgets as widgets
@@ -26,16 +25,6 @@ _NIFTI_MESSAGE_HTML = (
     "<span style='font-size:36px;opacity:0.5;'>&#129504;</span>"
     "<span>NIfTI files are not currently displayable.</span></div>"
 )
-
-_TEXT_EXTENSIONS = {
-    ".txt", ".csv", ".json", ".xml", ".html", ".log",
-    ".md", ".yaml", ".yml", ".cfg", ".ini", ".conf",
-}
-
-
-def _is_text_file(p):
-    """Check if a path is a readable text file."""
-    return p.suffix.lower() in _TEXT_EXTENSIONS
 
 
 def _error_card(msg):
@@ -254,7 +243,6 @@ def build_image_browser(state, viewer):
     image_label = viewer["image_label"]
     metadata_html = viewer["metadata_html"]
     metadata_table = viewer["metadata_table"]
-    info_panel = viewer["info_panel"]
     series_nav = viewer["series_nav"]
     series_info_label = viewer["series_info_label"]
 
@@ -284,7 +272,6 @@ def build_image_browser(state, viewer):
                 f"&#129504; <b>{file_path.name}</b></div>"
             )
             metadata_html.value = ""
-            info_panel.layout.display = "none"
             return None
 
         _clear_series_state()
@@ -317,13 +304,8 @@ def build_image_browser(state, viewer):
             f"&#x1F52C; <b>{file_path.name}</b></div>"
         )
 
-        # Show metadata
         meta_rows = extract_metadata(ds)
-        if meta_rows:
-            metadata_html.value = metadata_table(meta_rows)
-            info_panel.layout.display = ""
-        else:
-            info_panel.layout.display = "none"
+        metadata_html.value = metadata_table(meta_rows) if meta_rows else ""
 
         return None
 
@@ -338,7 +320,6 @@ def build_image_browser(state, viewer):
         image_placeholder.layout.display = ""
         image_label.value = ""
         metadata_html.value = ""
-        info_panel.layout.display = "none"
 
     # -- Open Series button and wiring --
 
@@ -411,11 +392,8 @@ def build_image_browser(state, viewer):
             f"Slice 1 / {len(datasets)}</div>"
         )
 
-        # Metadata from first slice
         meta_rows = extract_metadata(datasets[0])
-        if meta_rows:
-            metadata_html.value = metadata_table(meta_rows)
-            info_panel.layout.display = ""
+        metadata_html.value = metadata_table(meta_rows) if meta_rows else ""
 
         # Restore button
         open_series_btn.description = "Series"
@@ -432,49 +410,4 @@ def build_image_browser(state, viewer):
         on_clear=_on_image_clear,
         extra_controls=[open_series_btn],
         on_dir_change=_on_dir_change,
-    )
-
-
-def build_report_browser(state, viewer):
-    """Build text report file browser (second sidebar)."""
-
-    report_display = viewer["report_display"]
-
-    def _on_text_selected(file_path):
-        try:
-            content = file_path.read_text(errors="replace")[:50_000]
-        except Exception as exc:
-            return f"Could not read: {exc}"
-
-        safe = html_mod.escape(content)
-        state.report_text = content
-        state.report_file_name = file_path.name
-        state.report_file_path = str(file_path.resolve())
-
-        report_display.value = (
-            f"<div style='border:1px solid #e9ecef;border-radius:6px;"
-            f"margin-top:8px;overflow:hidden;'>"
-            f"<div style='background:#e8f4fd;padding:6px 12px;font-size:12px;"
-            f"font-weight:600;color:#1565c0;border-bottom:1px solid #e9ecef;'>"
-            f"&#x1F4C4; {file_path.name}</div>"
-            f"<pre style='font-size:12px;line-height:1.5;margin:0;padding:10px 12px;"
-            f"background:#ffffff;max-height:400px;overflow:auto;white-space:pre-wrap;"
-            f"word-wrap:break-word;"
-            f"font-family:SF Mono,Monaco,Consolas,monospace;'>{safe}</pre></div>"
-        )
-        return None
-
-    def _on_report_clear():
-        state.report_text = ""
-        state.report_file_name = ""
-        state.report_file_path = ""
-        report_display.value = ""
-
-    return _build_browser(
-        title="&#x1F4C4; Text Reports",
-        default_path=LOCAL_DATA_ROOT,
-        file_filter=_is_text_file,
-        file_icon="\U0001F4C4",
-        on_file_click=_on_text_selected,
-        on_clear=_on_report_clear,
     )

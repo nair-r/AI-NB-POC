@@ -1,4 +1,4 @@
-"""Dashboard orchestrator: assembles components and displays in cell output."""
+"""Dashboard orchestrator: assembles segmentation-focused components."""
 
 from __future__ import annotations
 
@@ -9,9 +9,8 @@ from IPython.display import display
 
 from utils.state import AppState
 from utils.components.app_bar import build_app_bar
-from utils.components.file_browser import build_image_browser, build_report_browser
+from utils.components.file_browser import build_image_browser
 from utils.components.viewer_tab import build_viewer
-from utils.components.chat_tab import build_chat
 from utils.components.segmentation_tab import build_segmentation
 from utils.components.seg_viewer import build_seg_viewer
 
@@ -47,9 +46,6 @@ _APP_CSS = """<style>
 .medgemma-sidebar {
     background-color: #f8f9fa !important;
     border-right: 1px solid #dee2e6 !important;
-}
-.medgemma-cred {
-    background-color: #f8f9fa !important;
 }
 .medgemma-switch .widget-checkbox input[type="checkbox"] {
     appearance: none;
@@ -91,69 +87,48 @@ _APP_CSS = """<style>
 
 
 def build_and_display_app():
-    """Build the full dashboard widget tree and display it."""
+    """Build the segmentation-focused dashboard and display it."""
 
     state = AppState()
     viewer = build_viewer(state)
-    chat = build_chat(state)
     segmentation = build_segmentation(state)
-    seg_overlay = build_seg_viewer(state, viewer)
-    action_tabs = widgets.Tab(
-        children=[chat, segmentation, seg_overlay],
-        layout=widgets.Layout(flex="1"),
-    )
-    action_tabs.set_title(0, "Chat")
-    action_tabs.set_title(1, "Segmentation")
-    action_tabs.set_title(2, "Overlay")
+    masks_panel = build_seg_viewer(state, viewer)
     header = build_app_bar()
 
     image_browser = build_image_browser(state, viewer)
-    report_browser = build_report_browser(state, viewer)
-
-    # --- Toggle switches (both on by default) ---
-    image_toggle = widgets.Checkbox(
-        value=True,
-        description="Image Selection",
-        indent=False,
-    )
-    report_toggle = widgets.Checkbox(
-        value=True,
-        description="Text Report",
-        indent=False,
-    )
-
-    def _on_image_toggle(change):
-        image_browser.layout.display = "" if change["new"] else "none"
-
-    def _on_report_toggle(change):
-        report_browser.layout.display = "" if change["new"] else "none"
-        if not change["new"]:
-            # Clear report when toggled off
-            state.report_text = ""
-            state.report_file_name = ""
-            viewer["report_display"].value = ""
-
-    image_toggle.observe(_on_image_toggle, names="value")
-    report_toggle.observe(_on_report_toggle, names="value")
 
     browser_toggle = widgets.Checkbox(
         value=True,
-        description="Show Browsers",
+        description="Show Image Browser",
+        indent=False,
+    )
+    metadata_toggle = widgets.Checkbox(
+        value=True,
+        description="Show DICOM Metadata",
         indent=False,
     )
 
     def _on_browser_toggle(change):
-        if change["new"]:
-            image_browser.layout.display = "" if image_toggle.value else "none"
-            report_browser.layout.display = "" if report_toggle.value else "none"
+        image_browser.layout.display = "" if change["new"] else "none"
+
+    def _apply_metadata_visibility():
+        if metadata_toggle.value and viewer["metadata_html"].value:
+            viewer["info_panel"].layout.display = ""
         else:
-            image_browser.layout.display = "none"
-            report_browser.layout.display = "none"
+            viewer["info_panel"].layout.display = "none"
+
+    def _on_metadata_toggle(_change):
+        _apply_metadata_visibility()
+
+    def _on_metadata_content_change(_change):
+        _apply_metadata_visibility()
 
     browser_toggle.observe(_on_browser_toggle, names="value")
+    metadata_toggle.observe(_on_metadata_toggle, names="value")
+    viewer["metadata_html"].observe(_on_metadata_content_change, names="value")
 
     toggle_bar = widgets.HBox(
-        [image_toggle, report_toggle, browser_toggle],
+        [browser_toggle, metadata_toggle],
         layout=widgets.Layout(
             padding="8px 16px",
             gap="24px",
@@ -162,39 +137,24 @@ def build_and_display_app():
     )
     toggle_bar.add_class("medgemma-switch")
 
-    # Report content panel (between viewer and chat, hidden until a report is loaded)
-    report_content_panel = widgets.VBox(
-        [viewer["report_display"]],
-        layout=widgets.Layout(
-            flex="0.8",
-            padding="0 16px",
-            border_left="1px solid #e9ecef",
-            border_right="1px solid #e9ecef",
-            display="none",
-        ),
-    )
-
-    def _on_report_display_change(change):
-        report_content_panel.layout.display = "" if change["new"] else "none"
-
-    viewer["report_display"].observe(_on_report_display_change, names="value")
-
-    # Main content: viewer + report + action tabs (chat, segmentation) side by
-    # side, metadata below
     main_content = widgets.VBox(
         [
+            viewer["viewer_panel"],
             widgets.HBox(
-                [viewer["viewer_panel"], report_content_panel, action_tabs],
-                layout=widgets.Layout(min_height="450px"),
+                [segmentation, masks_panel],
+                layout=widgets.Layout(
+                    padding="16px 0 0 0",
+                    border_top="1px solid #e9ecef",
+                    margin="16px 0 0 0",
+                ),
             ),
             viewer["info_panel"],
         ],
         layout=widgets.Layout(flex="1", padding="16px"),
     )
 
-    # Content area: browsers + main
     content = widgets.HBox(
-        [image_browser, report_browser, main_content],
+        [image_browser, main_content],
         layout=widgets.Layout(width="100%"),
     )
 
